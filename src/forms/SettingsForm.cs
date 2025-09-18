@@ -23,7 +23,6 @@ namespace LetheAIChat.src.forms
         public SettingsForm()
         {
             InitializeComponent();
-            HelptoolTip.SetToolTip(ck_webgrammar, "If checked, the LLM will be better at navigating the website, but its results will be less accurate." + Environment.NewLine + "Only enable if the LLM is consistently failing at browsing the web.");
             HelptoolTip.SetToolTip(ck_alwayswebsearch, "Normally, Online RAG (using DuckDuckGo API search) will only be attempt if you explicitely ask the bot to search the web. If you check this box, the LLM will always try to determine if a search would be useful." + Environment.NewLine + Environment.NewLine + "May lead to many false positive, and overall slower generation with some models.");
             LoadSettings();
             _isinitloading = false;
@@ -77,8 +76,6 @@ namespace LetheAIChat.src.forms
             ck_fixasterix.Checked = Program.Settings.AsteriskCheck;
             ck_antislop.Checked = Program.Settings.AntiSlop;
             num_antislopchance.Value = (decimal)Program.Settings.AntiSlopRatio;
-            ck_webkeyword.Checked = Program.Settings.WebsitePluginUseKeywords;
-            ck_webgrammar.Checked = Program.Settings.WebsitePluginGrammar;
             ck_unbold.Checked = Program.Settings.RoleplayFormatting.RemoveAllBoldedText;
             ck_noemphasisword.Checked = Program.Settings.RoleplayFormatting.RemoveSingleWorldEmphasis;
             ck_noquotes.Checked = Program.Settings.RoleplayFormatting.RemoveAllQuotes;
@@ -125,8 +122,6 @@ namespace LetheAIChat.src.forms
                 Program.Settings.RoleplayFormatting.LastParagraphDeleter = ck_lastparaphfilter.Checked;
                 Program.Settings.RemoveCutSentence = ck_remlastsentence.Checked;
                 Program.Settings.StopGenerationOnFirstParagraph = ck_oneparagraph.Checked;
-                Program.Settings.WebsitePluginUseKeywords = ck_webkeyword.Checked;
-                Program.Settings.WebsitePluginGrammar = ck_webgrammar.Checked;
                 Program.Settings.SessionMemorySystem = ck_sessionmemory.Checked;
                 Program.Settings.RAGDistanceCutOff = (float)num_ragcutoff.Value;
                 Program.Settings.RAGMaxEntries = (int)num_ragmaxretrieve.Value;
@@ -343,12 +338,6 @@ namespace LetheAIChat.src.forms
             this.Close();
         }
 
-        private void ck_webgrammar_CheckedChanged(object sender, EventArgs e)
-        {
-            Program.Settings.WebsitePluginGrammar = ck_webgrammar.Checked;
-            if (!_isinitloading)
-                SaveSettings();
-        }
 
         private void ck_lastparaphfilter_CheckedChanged(object sender, EventArgs e)
         {

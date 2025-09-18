@@ -8,7 +8,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LetheChat", "LetheChat.cspr
 		{A55AEDED-F358-4E07-90C6-F8865BDEDE61} = {A55AEDED-F358-4E07-90C6-F8865BDEDE61}
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LetheAISharp", "..\AnarkisTools\LetheAISharp.csproj", "{A55AEDED-F358-4E07-90C6-F8865BDEDE61}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LetheAISharp", "..\LetheAISharp\LetheAISharp.csproj", "{A55AEDED-F358-4E07-90C6-F8865BDEDE61}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

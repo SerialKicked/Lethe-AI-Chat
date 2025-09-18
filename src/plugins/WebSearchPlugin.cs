@@ -25,7 +25,7 @@ namespace LetheAIChat.Plugins
 
         private readonly string[] kwEnter = [ "search ", "look for ", "what is ", "where is ", "who is ", "who are ", " the web", "internet", "web search", "do you know", "where are ", "when is " ];
 
-        public bool KeywordDetection { get; set; } = false;
+        public bool KeywordDetection { get; set; } = true;
 
         private bool responseAppendNeeded = false;
         private List<EnrichedSearchResult>? lastresponse = null;
@@ -190,10 +190,7 @@ namespace LetheAIChat.Plugins
                 }
                 await Task.Delay(100);
             }
-            if (string.IsNullOrEmpty(response) || 
-                (response.StartsWith("no", StringComparison.InvariantCultureIgnoreCase) && response.Length<5))
-                return false;
-            return true;
+            return (!string.IsNullOrEmpty(response) && response.Contains("yes", StringComparison.InvariantCultureIgnoreCase));
         }
     }
 }

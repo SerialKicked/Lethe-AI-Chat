@@ -38,7 +38,6 @@ namespace LetheAIChat
             toolStripStatusLabel2 = new ToolStripStatusLabel();
             AutoTalkTimer = new System.Windows.Forms.Timer(components);
             panRight = new Panel();
-            button1 = new Button();
             groupBox5 = new GroupBox();
             btVectorSearch = new Button();
             btChatHistory = new Button();
@@ -60,6 +59,7 @@ namespace LetheAIChat
             bt_delete = new Button();
             bt_reroll = new Button();
             bt_send = new Button();
+            ed_input = new LetheAIChat.Controls.SpellCheckedTextBox();
             panLeft = new Panel();
             boxVLM = new GroupBox();
             label1 = new Label();
@@ -148,23 +148,12 @@ namespace LetheAIChat
             // 
             // panRight
             // 
-            panRight.Controls.Add(button1);
             panRight.Controls.Add(groupBox5);
             panRight.Dock = DockStyle.Right;
             panRight.Location = new Point(1058, 0);
             panRight.Name = "panRight";
             panRight.Size = new Size(203, 781);
             panRight.TabIndex = 8;
-            // 
-            // button1
-            // 
-            button1.Location = new Point(6, 370);
-            button1.Name = "button1";
-            button1.Size = new Size(190, 23);
-            button1.TabIndex = 26;
-            button1.Text = "Test Shit Button";
-            button1.UseVisualStyleBackColor = true;
-            button1.Click += button1_Click;
             // 
             // groupBox5
             // 
@@ -428,6 +417,19 @@ namespace LetheAIChat
             bt_send.Text = "Send";
             bt_send.UseVisualStyleBackColor = false;
             bt_send.Click += SendMessage;
+            // 
+            // ed_input
+            // 
+            ed_input.AllowDrop = true;
+            ed_input.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            ed_input.BackColor = Color.FromArgb(32, 70, 130, 180);
+            ed_input.Font = new Font("Segoe UI", 16F);
+            ed_input.Location = new Point(209, 692);
+            ed_input.Multiline = true;
+            ed_input.Name = "ed_input";
+            ed_input.ScrollBars = ScrollBars.Vertical;
+            ed_input.Size = new Size(711, 86);
+            ed_input.TabIndex = 2;
             // 
             // panLeft
             // 
@@ -843,6 +845,7 @@ namespace LetheAIChat
             Controls.Add(bt_delete);
             Controls.Add(bt_reroll);
             Controls.Add(bt_send);
+            Controls.Add(ed_input);
             Controls.Add(panLeft);
             Controls.Add(statusbar);
             Icon = (Icon)resources.GetObject("$this.Icon");
@@ -934,6 +937,5 @@ namespace LetheAIChat
         private Button btChatHistory;
         private Button btVectorSearch;
         private Button btRawLog;
-        private Button button1;
     }
 }
