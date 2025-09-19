@@ -1,18 +1,11 @@
-﻿using LetheAISharp;
+﻿using LetheAIChat;
+using LetheAISharp;
 using LetheAISharp.Agent.Actions;
-using LetheAISharp.API;
 using LetheAISharp.Files;
 using LetheAISharp.LLM;
-using AngleSharp.Dom;
 using Microsoft.Extensions.Logging;
 using System;
-using System.CodeDom.Compiler;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
-using System.Windows;
-using LetheAIChat.Files;
 using static LetheAISharp.SearchAPI.WebSearchAPI;
 
 namespace LetheAIChat.Plugins
@@ -23,9 +16,9 @@ namespace LetheAIChat.Plugins
         public string PluginID { get; } = "WebSearch";
         public bool Enabled { get; set; } = false;
 
-        private readonly string[] kwEnter = [ "search ", "look for ", "what is ", "where is ", "who is ", "who are ", " the web", "internet", "web search", "do you know", "where are ", "when is " ];
+        private readonly string[] kwEnter = ["search ", "look for ", "what is ", "where is ", "who is ", "who are ", " the web", "internet", "web search", "do you know", "where are ", "when is "];
 
-        public bool KeywordDetection { get; set; } = true;
+        public bool KeywordDetection { get; set; } = false;
 
         private bool responseAppendNeeded = false;
         private List<EnrichedSearchResult>? lastresponse = null;
@@ -95,7 +88,7 @@ namespace LetheAIChat.Plugins
             var topicsearch = new FindSingleTopicSearchAction();
             var topics = await topicsearch.Execute(new FindResearchTopicsParams
             {
-                Messages = [ new SingleMessage(AuthorRole.User, DateTime.Now, userinput, LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName) ],
+                Messages = [new SingleMessage(AuthorRole.User, DateTime.Now, userinput, LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName)],
                 IncludeBios = false,
                 CustomRequest = "Review the message in the prompt above and identify the topic for which a web search would be beneficial.",
             }, CancellationToken.None);
@@ -118,7 +111,7 @@ namespace LetheAIChat.Plugins
             var formatedresponsed = new StringBuilder();
             formatedresponsed.AppendLinuxLine("You looked up the information on the web and found the following information that you can use to improve your response:").AppendLine();
             formatedresponsed.AppendLinuxLine(merged.CleanupAndTrim());
-
+            responseAppendNeeded = true;
             var output = new PluginResponse
             {
                 IsHandled = true,
