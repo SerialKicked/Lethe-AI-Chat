@@ -185,13 +185,13 @@ namespace LetheAIChat
             ed_input.EnableImageDragDrop(basestr =>
             {
                 LLMEngine.VLM_ClearImages();
-                LLMEngine.VLM_AddImage(basestr);
+                LLMEngine.VLM_AddImage(DragNDropExtension.DroppedFilePath);
                 DisplayImage(basestr);
             }, 1024);
             pictEmbed.EnableImageDragDrop(basestr =>
             {
                 LLMEngine.VLM_ClearImages();
-                LLMEngine.VLM_AddImage(basestr);
+                LLMEngine.VLM_AddImage(DragNDropExtension.DroppedFilePath);
                 DisplayImage(basestr);
             }, 1024);
         }
