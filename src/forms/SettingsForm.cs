@@ -60,10 +60,10 @@ namespace LetheAIChat.src.forms
 
             switch (LLMEngine.Settings.RAGHeuristic)
             {
-                case HNSW.Net.NeighbourSelectionHeuristic.SelectSimple:
+                case RAGSelectionHeuristic.SelectSimple:
                     cb_ragheuristic.SelectedIndex = 1;
                     break;
-                case HNSW.Net.NeighbourSelectionHeuristic.SelectHeuristic:
+                case RAGSelectionHeuristic.SelectHeuristic:
                     cb_ragheuristic.SelectedIndex = 0;
                     break;
                 default:
@@ -130,9 +130,9 @@ namespace LetheAIChat.src.forms
                 Program.Settings.ShowHiddenMessages = ckShowHidden.Checked;
 
                 if (cb_ragheuristic.SelectedIndex == 0)
-                    Program.Settings.RAGHeuristic = HNSW.Net.NeighbourSelectionHeuristic.SelectHeuristic;
+                    Program.Settings.RAGHeuristic = RAGSelectionHeuristic.SelectHeuristic;
                 else if (cb_ragheuristic.SelectedIndex == 1)
-                    Program.Settings.RAGHeuristic = HNSW.Net.NeighbourSelectionHeuristic.SelectSimple;
+                    Program.Settings.RAGHeuristic = RAGSelectionHeuristic.SelectSimple;
 
                 var str = JsonConvert.SerializeObject(Program.Settings, Formatting.Indented);
                 File.WriteAllText("settings.json", str);
@@ -143,7 +143,7 @@ namespace LetheAIChat.src.forms
                 }
 
                 // Apply RAG settings
-                RAGEngine.ApplySettings();
+                LLMEngine.Bot.Brain.ReloadMemories();
             }
             catch (Exception ex)
             {
@@ -179,19 +179,19 @@ namespace LetheAIChat.src.forms
             LLMEngine.Settings.RAGIndex = (int)num_ragindex.Value;
             LLMEngine.Settings.MoveAllInsertsToSysPrompt = ck_sysrag.Checked;
             if (cb_ragheuristic.SelectedIndex == 0)
-                LLMEngine.Settings.RAGHeuristic = HNSW.Net.NeighbourSelectionHeuristic.SelectHeuristic;
+                LLMEngine.Settings.RAGHeuristic = RAGSelectionHeuristic.SelectHeuristic;
             else if (cb_ragheuristic.SelectedIndex == 1)
-                LLMEngine.Settings.RAGHeuristic = HNSW.Net.NeighbourSelectionHeuristic.SelectSimple;
-            RAGEngine.ApplySettings();
+                LLMEngine.Settings.RAGHeuristic = RAGSelectionHeuristic.SelectSimple;
+            LLMEngine.Bot.Brain.ReloadMemories();
             SaveSettings();
         }
 
         private void cb_ragheurisitic_SelectedIndexChanged(object sender, EventArgs e)
         {
             if (cb_ragheuristic.SelectedIndex == 0)
-                LLMEngine.Settings.RAGHeuristic = HNSW.Net.NeighbourSelectionHeuristic.SelectHeuristic;
+                LLMEngine.Settings.RAGHeuristic = RAGSelectionHeuristic.SelectHeuristic;
             else if (cb_ragheuristic.SelectedIndex == 1)
-                LLMEngine.Settings.RAGHeuristic = HNSW.Net.NeighbourSelectionHeuristic.SelectSimple;
+                LLMEngine.Settings.RAGHeuristic = RAGSelectionHeuristic.SelectSimple;
         }
 
         private void num_ragcutoff_ValueChanged(object sender, EventArgs e)

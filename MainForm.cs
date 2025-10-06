@@ -175,8 +175,7 @@ namespace LetheAIChat
             LLMEngine.ContextPlugins = [];
             LLMEngine.ContextPlugins.Add(new LocationPlugin("Locations"));
             LLMEngine.ContextPlugins.Add(new WebSearchPlugin());
-            RAGEngine.Enabled = true;
-            ck_ragenabled.Checked = RAGEngine.Enabled;
+            ck_ragenabled.Checked = LLMEngine.Settings.RAGEnabled;
             ck_worldinfo.Checked = LLMEngine.Settings.AllowWorldInfo;
             LLMEngine.OnInferenceStreamed += OnStreamMessageReceived;
             LLMEngine.OnInferenceEnded += OnStreamInferenceEnded;
@@ -186,13 +185,13 @@ namespace LetheAIChat
             ed_input.EnableImageDragDrop(basestr =>
             {
                 LLMEngine.VLM_ClearImages();
-                LLMEngine.VLM_AddB64Image(basestr);
+                LLMEngine.VLM_AddImage(basestr);
                 DisplayImage(basestr);
             }, 1024);
             pictEmbed.EnableImageDragDrop(basestr =>
             {
                 LLMEngine.VLM_ClearImages();
-                LLMEngine.VLM_AddB64Image(basestr);
+                LLMEngine.VLM_AddImage(basestr);
                 DisplayImage(basestr);
             }, 1024);
         }
@@ -1042,7 +1041,7 @@ namespace LetheAIChat
 
         private void ck_ragenabled_CheckedChanged(object sender, EventArgs e)
         {
-            RAGEngine.Enabled = ck_ragenabled.Checked;
+            LLMEngine.Settings.RAGEnabled = ck_ragenabled.Checked;
         }
 
         #endregion

@@ -17,12 +17,14 @@ namespace LetheAIChat.AgentPlugins
     {
         public string Id => "GoalDesignerTask";
 
+        public string Ability => "set goals";
+
         public async Task<bool> Observe(BasePersona owner, AgentTaskSetting cfg, CancellationToken ct)
         {
             // Just a small delay so i don't have to remove async and do Task.ResultFrom everywhere. It's not like we're on a timer anyway.
             await Task.Delay(10, ct).ConfigureAwait(false);
 
-            if (LLMEngine.Status != SystemStatus.Ready || LLMEngine.SupportsGrammar != true || LLMEngine.MaxContextLength < 8000)
+            if (LLMEngine.Status != SystemStatus.Ready || !LLMEngine.SupportsSchema || LLMEngine.MaxContextLength < 8000)
                 return false;
 
             var MinTimeInterval = cfg.GetSetting<TimeSpan>("MinTimeInterval");
@@ -111,7 +113,7 @@ namespace LetheAIChat.AgentPlugins
                     EndTime = DateTime.Now.AddDays(30),
                     Priority = Math.Clamp((6 - i) / 2 , 0, 3)
                 };
-                if (RAGEngine.Enabled)
+                if (LLMEngine.Settings.RAGEnabled)
                     await memunit.EmbedText().ConfigureAwait(false);
                 owner.Brain.Memorize(memunit);
                 if (ct.IsCancellationRequested)
@@ -230,7 +232,7 @@ namespace LetheAIChat.AgentPlugins
                 "{{userbio}}" + LLMEngine.NewLine + LLMEngine.NewLine;
 
             var datafound = new PromptInserts();
-            await owner.Brain.UpdateRagAndInserts(datafound, goal, 8, 1.25f).ConfigureAwait(false);
+            await owner.Brain.GetRAGandInserts(datafound, goal, 8, 1.25f).ConfigureAwait(false);
             if (datafound.Count > 0)
             {
                 sysprompt += "## Relevant Information:" + LLMEngine.NewLine + LLMEngine.NewLine;

@@ -17,12 +17,14 @@ namespace LetheAIChat.AgentPlugins
     {
         public string Id => "JournalTask";
 
+        public string Ability => "write in journal";
+
         public async Task<bool> Observe(BasePersona owner, AgentTaskSetting cfg, CancellationToken ct)
         {
             // Just a small delay so i don't have to remove async and do Task.ResultFrom everywhere. It's not like we're on a timer anyway.
             await Task.Delay(10, ct).ConfigureAwait(false);
 
-            if (LLMEngine.Status != SystemStatus.Ready || !LLMEngine.SupportsGrammar || LLMEngine.MaxContextLength < 8000)
+            if (LLMEngine.Status != SystemStatus.Ready || !LLMEngine.SupportsSchema || LLMEngine.MaxContextLength < 8000)
                 return false;
 
             var MinTimeInterval = cfg.GetSetting<TimeSpan>("TriggerInterval");
@@ -101,7 +103,7 @@ namespace LetheAIChat.AgentPlugins
             prompt.AppendLinuxLine("# {{user}}'s Biography").AppendLinuxLine();
             prompt.AppendLinuxLine("{{userbio}}").AppendLinuxLine();
             prompt.AppendLinuxLine("# Last archived session with {{user}}").AppendLinuxLine();
-            prompt.AppendLinuxLine($"{lastsession.GetRawMemory(true, true)}").AppendLinuxLine();
+            prompt.AppendLinuxLine($"{lastsession.Content}").AppendLinuxLine();
             if (mostrecententry is not null)
             {
                 prompt.AppendLinuxLine("# You most recent journal entry").AppendLinuxLine();
@@ -114,7 +116,7 @@ namespace LetheAIChat.AgentPlugins
                 prompt.AppendLinuxLine($"You last spoke to {LLMEngine.User.Name} about {StringExtensions.TimeSpanToHumanString(timespansince)} ago.").AppendLinuxLine();
             }
             var recall = new PromptInserts();
-            await owner.Brain.UpdateRagAndInserts(recall, topic, 3, 1.1f);
+            await owner.Brain.GetRAGandInserts(recall, topic, 3, 1.1f);
             foreach (var item in recall)
             {
                 prompt.AppendLinuxLine(item.Content).AppendLinuxLine();
@@ -145,7 +147,7 @@ namespace LetheAIChat.AgentPlugins
             prompt.AppendLinuxLine("# {{user}}'s Biography").AppendLinuxLine();
             prompt.AppendLinuxLine("{{userbio}}").AppendLinuxLine();
             prompt.AppendLinuxLine("# Last archived session with {{user}}").AppendLinuxLine();
-            prompt.AppendLinuxLine($"{lastsession.GetRawMemory(true, true)}").AppendLinuxLine();
+            prompt.AppendLinuxLine($"{lastsession.Content}").AppendLinuxLine();
             if (mostrecententry is not null)
             {
                 prompt.AppendLinuxLine("# You most recent journal entry").AppendLinuxLine();

@@ -332,7 +332,7 @@ namespace LetheAIChat.src.forms
 
         private async void btEmbedAll_Click(object sender, EventArgs e)
         {
-            if (!RAGEngine.Enabled)
+            if (!LLMEngine.Settings.RAGEnabled)
             {
                 MessageBox.Show("The RAG System is not enabled. Operation cancelled.");
                 return;
@@ -353,7 +353,7 @@ namespace LetheAIChat.src.forms
                 loadingForm.SetMessage("Embedding all chat sessions. This might take a moment.");
                 loadingForm.SetProgress(0);
                 loadingForm.SetMax(LLMEngine.History.Sessions.Count);
-                RAGEngine.OnEmbedText += (s, e) =>
+                EmbedTools.OnEmbedText += (s, e) =>
                 {
                     loadingForm.AddProgress(1);
                 };
@@ -363,11 +363,11 @@ namespace LetheAIChat.src.forms
                 loadingForm.SetMessage("Brain Embedding...");
                 await LLMEngine.Bot.Brain.RegenEmbeds();
                 loadingForm.SetMessage("Loading Updated Vector Database...");
-                RAGEngine.VectorizeChatBot(LLMEngine.Bot);
+                LLMEngine.Bot.Brain.ReloadMemories();
             }
             finally
             {
-                RAGEngine.RemoveEmbedEventHandler();
+                EmbedTools.RemoveEmbedEventHandler();
                 loadingForm.Close();
                 this.Enabled = true;
                 MessageBox.Show("All sessions have been embedded successfully.");

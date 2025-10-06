@@ -66,7 +66,7 @@ namespace LetheAIChat.Plugins
         /// <returns></returns>
         public async Task<PluginResponse> ReplaceUserInput(string userinput)
         {
-            if (!LLMEngine.SupportsGrammar || !LLMEngine.SupportsWebSearch)
+            if (!LLMEngine.SupportsSchema || !LLMEngine.SupportsWebSearch)
                 return new PluginResponse { IsHandled = false, Response = null };
 
             var response = false;
