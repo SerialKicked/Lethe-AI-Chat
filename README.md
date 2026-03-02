@@ -32,8 +32,8 @@ Windows-based high-performance front-end for [KoboldCPP](https://github.com/Lost
 Lethe AI Chat offers a ton of advanced settings allowing you to configure the app for pretty much any use case.
 
 ## Supported Backend API
-- **KoboldCPP API**: Recommended, with the most functionalities
-- **OpenAI API**: Compatible with most backends, much less functionalities
+- **KoboldCPP API**: Recommended, can do TTS, but very poor image recognition (if at all)
+- **OpenAI API**: Compatible with most existing backends (LMStudio, Llama.cpp, and so)
 - **Internal LetheAI Backend**: Run the program in a self-contained mode, allowing you to load GGUF files directly from the app
 
 This application is designed for local deployment. The backend must be running on your computer or on a local network. The following backends have been tested: KoboldCpp, LM Studio, and Text Generation Web UI.
