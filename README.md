@@ -2,7 +2,7 @@
 
 Windows-based high-performance front-end for [KoboldCPP](https://github.com/LostRuins/koboldcpp) and OpenAI API compatible backends like [LM Studio](https://lmstudio.ai/) written in C#.NET. Using [Lethe AI](https://github.com/SerialKicked/Lethe-AI-Sharp) to do the heavy lifting.
 
-![LetheAIChat_RjiqpbMiTq](https://github.com/user-attachments/assets/a4d1595d-a5f4-41f6-885e-5c50cd8fa619)
+<img width="1920" height="1032" alt="LetheChat_QrSGcp5ZBb" src="https://github.com/user-attachments/assets/7a81b84c-4c64-4249-9dfc-e5e210213787" />
 
 ## Main Features:
 - All-in-one program to edit characters, system prompts, instruction formats, and inference settings
@@ -23,8 +23,13 @@ Windows-based high-performance front-end for [KoboldCPP](https://github.com/Lost
 - Automatic insertion of dates into the prompt to give the model a better sense of time (toggle)
 - Import chatlogs and world info files from Silly Tavern
 - Powerful **Group Chat** support (add/remove personas to a chat at will)
-- 
 - Simple and intuitive UI
+
+## Extremely Configurable
+
+<img width="1333" height="705" alt="LetheChat_lQV04N078s" src="https://github.com/user-attachments/assets/9f325bf8-8cea-4cf5-b12b-0bbb1ddf0383" />
+
+Lethe AI Chat offers a ton of advanced settings allowing you to configure the app for pretty much any use case.
 
 ## Supported Backend API
 - **KoboldCPP API**: Recommended, with the most functionalities
