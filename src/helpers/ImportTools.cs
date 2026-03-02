@@ -172,7 +172,7 @@ namespace LetheAIChat
         }
 
         /// <summary>
-        /// Import a SillyTavern chatlog file (preconverted from JSONL to JSON ImportST) into a Lethe Chatlog
+        /// Import a SillyTavern chatlog file (preconverted from JSONL to JSON ImportST) into a wAIfu Chatlog
         /// </summary>
         /// <param name="inputpath"></param>
         /// <param name="outputpath"></param>

@@ -12,6 +12,7 @@ using LetheAISharp.LLM;
 using LetheAISharp;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using System.Diagnostics;
+using LetheAIChat.Controls;
 
 namespace LetheAIChat.src.forms
 {
@@ -84,7 +85,11 @@ namespace LetheAIChat.src.forms
         {
             if (InvokeRequired)
             {
-                SafeInvoke(() => ed_message.Text = Message!.Message.ToWinFormat());
+                SafeInvoke(() =>
+                {
+                    ed_message.Text = Message!.Message.ToWinFormat();
+                });
+
             }
             else
             {
@@ -97,6 +102,21 @@ namespace LetheAIChat.src.forms
             if (e.KeyChar == (char)Keys.Escape)
             {
                 DialogResult = DialogResult.Cancel;
+                Close();
+            }
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            if (Message == null)
+            {
+                DialogResult = DialogResult.Cancel;
+                Close();
+            }
+            else
+            {
+                LLMEngine.History.CurrentSession.Messages.Remove(Message);
+                DialogResult = DialogResult.OK;
                 Close();
             }
         }

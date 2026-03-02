@@ -14,7 +14,7 @@ namespace LetheAIChat.src.forms
         {
             InitializeComponent();
             textBox1.Text = LLMEngine.History.GetLastMessageFrom(AuthorRole.User)?.Message ?? string.Empty;
-            DoSearch(textBox1.Text);
+            DoSearch(textBox1.Text); 
         }
 
         private void button1_Click(object sender, EventArgs e)
@@ -29,8 +29,11 @@ namespace LetheAIChat.src.forms
             {
                 var res = new StringBuilder();
                 res.AppendLine($"Base string: {searchstr}");
-                searchstr = searchstr.ConvertToThirdPerson();
-                res.AppendLine($"Converted to 3rd person: {searchstr}");
+                if (LLMEngine.Settings.RAGConvertTo3rdPerson)
+                {
+                    searchstr = searchstr.ConvertToThirdPerson();
+                    res.AppendLine($"Converted to 3rd person: {searchstr}");
+                }
                 res.AppendLine();
                 res.AppendLine("Search Results:");
                 var found = await LLMEngine.Bot.Brain.Search(searchstr, 100, 1.2f);

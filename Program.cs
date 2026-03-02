@@ -1,7 +1,9 @@
+using LetheAISharp.Files;
 using LetheAISharp.LLM;
 using Newtonsoft.Json;
 using System.IO;
 using LetheAIChat.Files;
+using LetheAIChat.Plugins;
 
 namespace LetheAIChat
 {
@@ -26,12 +28,26 @@ namespace LetheAIChat
             Settings = JsonConvert.DeserializeObject<LetheChatSettings>(str)!;
             LLMEngine.Settings = Settings;
 
+            if (File.Exists("data/banlist.json"))
+            {
+                var banstr = File.ReadAllText("data/banlist.json");
+                LLMEngine.BannedSearchWords = JsonConvert.DeserializeObject<BanList>(banstr)!;
+            }
+
             // To customize application configuration such as set high DPI settings or default font,
             // see https://aka.ms/applicationconfiguration.
             ApplicationConfiguration.Initialize();
             DataFiles.LoadDB();
             BigForm = new MainForm();
             Application.Run(BigForm);
+        }
+
+        public static void ApplyContextPluginSettings()
+        {
+            if (LLMEngine.ContextPlugins.Find(x => x.PluginID == "WebSearch") is WebSearchPlugin searchplug)
+            {
+                searchplug.KeywordDetection = !Settings.AlwaysWebSearchQuery;
+            }
         }
     }
 }

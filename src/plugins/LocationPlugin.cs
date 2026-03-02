@@ -48,7 +48,7 @@ namespace LetheAIChat.Plugins
             }
             var str = new StringBuilder();
             str.AppendLinuxLine(LLMEngine.NewLine + LLMEngine.SystemPrompt.CategorySeparator+ " Current Location: " + currentLocation.Name);
-            str.Append("{{user}} and {{char}} are currently at this location: ").AppendLinuxLine(currentLocation.Content);
+            str.Append("{{user}} and {{mchar}} are currently at this location: ").AppendLinuxLine(currentLocation.Content);
             response = str.ToString();
             return true;
         }
@@ -114,12 +114,6 @@ namespace LetheAIChat.Plugins
 
         #endregion
 
-        private static void AddMovingInfSystemMessage(Chatlog log, MemoryUnit newLoc)
-        {
-            var prompt = string.Format("{0} and {1} are moving to a new location: {2}. React accordingly.", LLMEngine.User.Name, LLMEngine.Bot.Name, newLoc.Name);
-            //var msg = new SingleMessage(AuthorRole.System, DateTime.Now, prompt, LLMChatManager.Bot.Name, LLMChatManager.User.Name, false);
-            log.LogMessage(AuthorRole.System, prompt, LLMEngine.User, LLMEngine.Bot);
-        }
 
         private string BuildCheckPrompt(string userinput)
         {

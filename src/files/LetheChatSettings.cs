@@ -12,13 +12,13 @@ namespace LetheAIChat.Files
 {
     public class LetheChatSettings : LLMSettings
     {
+        public string Skin { get; set; } = "Dark";
         public string BotFile { get; set; } = "Assistant";
         public string UserFile { get; set; } = "User";
         public string PromptFile { get; set; } = "Standard";
         public string Instruct { get; set; } = "ChatML";
         public string SamplerFile { get; set; } = "Default";
         public double Temperature { get; set; } = 0.70;
-        public int MaxTotalTokens { get; set; } = 16384;
         public int MaxMessagesOnScreen { get; set; } = 100;
         public int FontSize { get; set; } = 18;
         public bool AlwaysWebSearchQuery { get; set; } = false;
@@ -30,6 +30,10 @@ namespace LetheAIChat.Files
         public float AntiSlopRatio { get; set; } = 1;
         public string[] AntiSlopList { get; set; } = [];
         public bool RemoveCutSentence { get; set; } = false;
-        public StringFix RoleplayFormatting { get; set; } = new StringFix(false, false, false, false, false, 1, 50, false);
+        public bool AlwaysForcePasswordOnBotSwitch { get; set; } = false;
+        public StringFix RoleplayFormatting { get; set; } = new StringFix(false, false, false, false, false, 1, 50, false, false, false);
+        public GroupChatMode GroupChatMode { get; set; } = GroupChatMode.Manual;
+        public int GroupChatAutoResponseLimit { get; set; } = 2;
     }
+
 }

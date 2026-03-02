@@ -1,6 +1,8 @@
 ﻿using LetheAISharp;
+using LetheAISharp.Agent;
 using LetheAISharp.Files;
 using LetheAISharp.LLM;
+using LetheAISharp.Memory;
 using Microsoft.VisualBasic.ApplicationServices;
 using System;
 using System.Collections.Generic;
@@ -81,13 +83,42 @@ namespace LetheAIChat.src.forms
             mychar.SenseOfTime = ck_senseoftime.Checked;
             mychar.SelfEditTokens = (int)num_selfedittokens.Value;
             mychar.SelfEditField = ed_selfedit.Text.ToLinuxFormat();
-            mychar.Icon = cb_icon.Text;
+            mychar.Icon = cb_icon.SelectedText ?? string.Empty;
             mychar.Plugins = [.. ckl_plugins.CheckedItems.Cast<string>()];
             mychar.Worlds = [.. ckl_worldinfo.CheckedItems.Cast<string>()];
             mychar.AllowedSamplers = [.. ckl_samplers.CheckedItems.Cast<string>()];
             mychar.PointSystem = (cb_pointsystems.SelectedIndex != -1) ? cb_pointsystems.Text : string.Empty;
             mychar.PointValue = (int)num_ptvalue.Value;
             mychar.DatesInSessionSummaries = ck_irldates.Checked;
+            mychar.Protected = ckPassword.Checked;
+            mychar.UniqueName = edFilename.Text;
+            mychar.Brain.MoodHandling = ckMoodSystem.Checked;
+            mychar.Brain.DisableEurekas = !ckAllowEurekas.Checked;
+            mychar.Brain.HoursBeforeAFK = (float)num_minAFK.Value;
+            mychar.Brain.MinMessageDelay = (int)numEurekaMinMess.Value;
+            mychar.Brain.MinInsertDelay = TimeSpan.FromHours((double)numEurekaMinTime.Value);
+            mychar.Brain.EurekaCutOff = TimeSpan.FromDays((int)numKeepEurekas.Value);
+            mychar.Brain.StaticMood = ckStaticMood.Checked;
+            mychar.Brain.Mood.Cheer = (double)moodCheer.Value;
+            mychar.Brain.Mood.Curiosity = (double)moodCuriosity.Value;
+            mychar.Brain.Mood.Energy = (double)moodEnergy.Value;
+            mychar.AgentMode = ckAgent.Checked;
+            mychar.AgentTasks = [.. listAgentTasks.CheckedItems.Cast<string>()];
+            mychar.DisableBotGuidance = ckNoGuidance.Checked;
+            mychar.MiniBio = edMiniBio.Text.ToLinuxFormat();
+            if (mychar.AgentSystem is not null)
+                mychar.AgentSystem.Config.MinInactivityTime = TimeSpan.FromHours((double)numAgentDelay.Value);
+            mychar.Brain.DisableRAG = [.. listNoRAGMemTypes.CheckedItems.Cast<string>().Select(s => Enum.Parse<MemoryType>(s))];
+            mychar.Brain.DecayableMemories = [.. listCanDecay.CheckedItems.Cast<string>().Select(s => Enum.Parse<MemoryType>(s))];
+            mychar.Brain.DailySchedulePrefix = edSchedulePrefix.Text;
+            mychar.Brain.DailySchedule[(int)DayOfWeek.Sunday] = edSunday.Text;
+            mychar.Brain.DailySchedule[(int)DayOfWeek.Monday] = edMonday.Text;
+            mychar.Brain.DailySchedule[(int)DayOfWeek.Tuesday] = edTuesday.Text;
+            mychar.Brain.DailySchedule[(int)DayOfWeek.Wednesday] = edWednesday.Text;
+            mychar.Brain.DailySchedule[(int)DayOfWeek.Thursday] = edThursday.Text;
+            mychar.Brain.DailySchedule[(int)DayOfWeek.Friday] = edFriday.Text;
+            mychar.Brain.DailySchedule[(int)DayOfWeek.Saturday] = edSaturday.Text;
+
             return mychar;
         }
 
@@ -109,6 +140,24 @@ namespace LetheAIChat.src.forms
             ed_selfedit.Text = selectedCharacter.SelfEditField.ToWinFormat();
             num_ptvalue.Value = selectedCharacter.PointValue;
             ck_irldates.Checked = selectedCharacter.DatesInSessionSummaries;
+            ckPassword.Checked = selectedCharacter.Protected;
+            ckMoodSystem.Checked = selectedCharacter.Brain.MoodHandling;
+            ckAllowEurekas.Checked = !selectedCharacter.Brain.DisableEurekas;
+            num_minAFK.Value = (decimal)selectedCharacter.Brain.HoursBeforeAFK;
+            numEurekaMinMess.Value = selectedCharacter.Brain.MinMessageDelay;
+            numEurekaMinTime.Value = (decimal)selectedCharacter.Brain.MinInsertDelay.TotalHours;
+            numKeepEurekas.Value = (decimal)selectedCharacter.Brain.EurekaCutOff.TotalDays;
+            ckAgent.Checked = selectedCharacter.AgentMode;
+            numAgentDelay.Value = (decimal)(selectedCharacter.AgentSystem?.Config.MinInactivityTime.TotalHours ?? 0.5);
+            ckNoGuidance.Checked = selectedCharacter.DisableBotGuidance;
+            moodCheer.Value = (decimal)selectedCharacter.Brain.Mood.Cheer;
+            moodCuriosity.Value = (decimal)selectedCharacter.Brain.Mood.Curiosity;
+            moodEnergy.Value = (decimal)selectedCharacter.Brain.Mood.Energy;
+            edMiniBio.Text = selectedCharacter.MiniBio.ToWinFormat();
+            ckStaticMood.Checked = selectedCharacter.Brain.StaticMood;
+
+
+            edFilename.Text = selectedCharacter.UniqueName;
             ckl_plugins.Items.Clear();
             foreach (var item in LLMEngine.ContextPlugins)
             {
@@ -124,15 +173,40 @@ namespace LetheAIChat.src.forms
             {
                 ckl_samplers.Items.Add(item.Value.UniqueName, selectedCharacter.AllowedSamplers.Contains(item.Value.UniqueName));
             }
+
+            listAgentTasks.Items.Clear();
+            var tasks = AgentRuntime.GetRegisteredPluginIds();
+            foreach (var item in tasks)
+            {
+                listAgentTasks.Items.Add(item, selectedCharacter.AgentTasks.Contains(item));
+            }
+
+            listNoRAGMemTypes.Items.Clear();
+            listCanDecay.Items.Clear();
+            foreach (var item in Enum.GetValues<MemoryType>())
+            {
+                listNoRAGMemTypes.Items.Add(item.ToString(), selectedCharacter.Brain.DisableRAG.Contains(item));
+                listCanDecay.Items.Add(item.ToString(), selectedCharacter.Brain.DecayableMemories.Contains(item));
+            }
+
             // set cb_icon item index to the one that matches the selected character icon
             cb_icon.SelectedIndex = cb_icon.Items.IndexOf(selectedCharacter.Icon);
 
             cb_pointsystems.SelectedIndex = !string.IsNullOrWhiteSpace(selectedCharacter.PointSystem) && DataFiles.Points.ContainsKey(selectedCharacter.PointSystem) ? cb_pointsystems.Items.IndexOf(selectedCharacter.PointSystem) : -1;
+
+            edSchedulePrefix.Text = selectedCharacter.Brain.DailySchedulePrefix;
+            edSunday.Text = selectedCharacter.Brain.DailySchedule[(int)DayOfWeek.Sunday] ?? string.Empty;
+            edMonday.Text = selectedCharacter.Brain.DailySchedule[(int)DayOfWeek.Monday] ?? string.Empty;
+            edTuesday.Text = selectedCharacter.Brain.DailySchedule[(int)DayOfWeek.Tuesday] ?? string.Empty;
+            edWednesday.Text = selectedCharacter.Brain.DailySchedule[(int)DayOfWeek.Wednesday] ?? string.Empty;
+            edThursday.Text = selectedCharacter.Brain.DailySchedule[(int)DayOfWeek.Thursday] ?? string.Empty;
+            edFriday.Text = selectedCharacter.Brain.DailySchedule[(int)DayOfWeek.Friday] ?? string.Empty;
+            edSaturday.Text = selectedCharacter.Brain.DailySchedule[(int)DayOfWeek.Saturday] ?? string.Empty;
         }
 
         private void bt_worldsave_Click(object sender, EventArgs e)
         {
-            var NewName = cb_charlist.Text;
+            var NewName = edFilename.Text;
             if (string.IsNullOrWhiteSpace(NewName))
             {
                 MessageBox.Show("Please select a valide name for the character");
@@ -145,10 +219,12 @@ namespace LetheAIChat.src.forms
             SelectedCharacter.UniqueName = NewName;
             DataFiles.Characters[NewName] = SelectedCharacter;
             (SelectedCharacter as IFile).SaveToFile("data/chars/" + NewName + ".json");
+
             SetupCharacterEditor(NewName, false);
 
+            LLMEngine.LoadPersonas([.. DataFiles.Characters.Values]);
             // Update the sampler list in the chat menu
-            var currselection = cb_charlist.SelectedItem?.ToString() ?? "";
+            var currselection = cb_charlist.SelectedItem?.ToString() ?? string.Empty;
             cb_charlist.Items.Clear();
             foreach (var item in DataFiles.Characters)
             {
@@ -156,14 +232,15 @@ namespace LetheAIChat.src.forms
             }
             var newidx = cb_charlist.Items.IndexOf(currselection);
             cb_charlist.SelectedIndex = newidx == -1 ? 0 : newidx;
+
         }
 
         private void cb_icon_SelectedIndexChanged(object sender, EventArgs e)
         {
             // load the image from the data/img folder into the picture
-            if (!File.Exists("data/img/" + cb_icon.Text))
+            if (!File.Exists("data/img/" + cb_icon.SelectedText))
                 return;
-            var img = Image.FromFile("data/img/" + cb_icon.Text);
+            var img = Image.FromFile("data/img/" + cb_icon.SelectedText);
             if (img != null)
             {
                 pic.Image = img;
@@ -189,6 +266,21 @@ namespace LetheAIChat.src.forms
                 await SelectedCharacter.UpdateSelfEditSection();
                 ed_selfedit.Text = SelectedCharacter.SelfEditField.ToWinFormat();
             }
+        }
+
+        private void ckPassword_CheckedChanged(object sender, EventArgs e)
+        {
+            SelectedCharacter.Protected = ckPassword.Checked;
+        }
+
+        private void textBox1_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void ckTimerEnable_CheckedChanged(object sender, EventArgs e)
+        {
+
         }
     }
 }

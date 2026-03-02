@@ -1,8 +1,8 @@
-# Lethe AI Chat
+# w(AI)fu.NET
 
 Windows-based high-performance front-end for [KoboldCPP](https://github.com/LostRuins/koboldcpp) and OpenAI API written in C#.NET. Using [Lethe AI](https://github.com/SerialKicked/Lethe-AI-Sharp) to do the heavy lifting.
 
-![WaifuAI_RjiqpbMiTq](https://github.com/user-attachments/assets/a4d1595d-a5f4-41f6-885e-5c50cd8fa619)
+![LetheAIChat_RjiqpbMiTq](https://github.com/user-attachments/assets/a4d1595d-a5f4-41f6-885e-5c50cd8fa619)
 
 ## Main Features:
 - All-in-one program to edit characters, system prompts, instruction formats, and inference settings
@@ -42,4 +42,4 @@ This application is designed for local deployment. The backend must be running o
 
 ## License
 
-**Lethe-AI Chat** is under [CC BY-NC-SA 4.0](https://github.com/SerialKicked/ChatAI/tree/master?tab=License-1-ov-file#readme). You may not use this code for commercial purposes.
+w(AI)fu.NET is under [CC BY-NC-SA 4.0](https://github.com/SerialKicked/ChatAI/tree/master?tab=License-1-ov-file#readme). You may not use this code for commercial purposes.

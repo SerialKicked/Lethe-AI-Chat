@@ -19,7 +19,7 @@ namespace LetheAIChat.GBNF
         [Required]
         [MinLength(0)]
         [MaxLength(3)]
-        [Description("A list of goals and pursuits that {{char}} wants to do.")]
+        [Description("A list of goals and pursuits that {{mchar}} wants to do.")]
         public List<string> Goals { get; set; } = [];
 
         public override async Task<string> GetGrammar()
@@ -31,19 +31,6 @@ namespace LetheAIChat.GBNF
             return Schema;
         }
 
-        public override string GetQuery()
-        {
-            var requestedTask = "Answer the request using the following JSON format:" + LLMEngine.NewLine;
-
-            var schema = DescriptionHelper.GetAllDescriptionsRecursive<GoalList>();
-
-            foreach (var prop in schema)
-            {
-                requestedTask += $"- {prop.Key}: {prop.Value}\n";
-            }
-            requestedTask = LLMEngine.Bot.ReplaceMacros(requestedTask);
-            return requestedTask;
-        }
     }
 
     public class GoalRecord : LLMExtractableBase<GoalRecord>
@@ -51,11 +38,11 @@ namespace LetheAIChat.GBNF
         [JsonIgnore] private static string Schema = string.Empty;
 
         [Required]
-        [Description("A goal {{char}} wants to set for themselves.")]
+        [Description("A goal {{mchar}} wants to set for themselves.")]
         public string GoalTitle { get; set; } = string.Empty;
 
         [Required]
-        [Description("A detailed description of what {{char}} wants to do, or get {{user}} to do.")]
+        [Description("A detailed description of what {{mchar}} wants to do, or get {{user}} to do.")]
         public string GoalDetails { get; set; } = string.Empty;
 
         [Required]
@@ -63,7 +50,7 @@ namespace LetheAIChat.GBNF
         public string Reason { get; set; } = string.Empty;
 
         [Required]
-        [Description("The plan of action {{char}} wants to put in place to achieve this goal.")]
+        [Description("The plan of action {{mchar}} wants to put in place to achieve this goal.")]
         public string PlanOfAction { get; set; } = string.Empty;
 
         public override async Task<string> GetGrammar()
@@ -75,16 +62,5 @@ namespace LetheAIChat.GBNF
             return Schema;
         }
 
-        public override string GetQuery()
-        {
-            var requestedTask = "Answer the request using the following JSON format:" + LLMEngine.NewLine;
-            var schema = DescriptionHelper.GetAllDescriptionsRecursive<GoalRecord>();
-            foreach (var prop in schema)
-            {
-                requestedTask += $"- {prop.Key}: {prop.Value}\n";
-            }
-            requestedTask = LLMEngine.Bot.ReplaceMacros(requestedTask);
-            return requestedTask;
-        }
     }
 }

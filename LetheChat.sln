@@ -1,14 +1,11 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.11.35312.102
+# Visual Studio Version 18
+VisualStudioVersion = 18.3.11520.95
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LetheChat", "LetheChat.csproj", "{DF61DF11-34FA-490F-985E-2AB39D43C838}"
-	ProjectSection(ProjectDependencies) = postProject
-		{A55AEDED-F358-4E07-90C6-F8865BDEDE61} = {A55AEDED-F358-4E07-90C6-F8865BDEDE61}
-	EndProjectSection
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LetheAISharp", "..\LetheAISharp\LetheAISharp.csproj", "{A55AEDED-F358-4E07-90C6-F8865BDEDE61}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LetheChat", "LetheChat.csproj", "{9F183BF6-AB13-3A8C-BAAA-0EF61FA23043}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -16,18 +13,14 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{DF61DF11-34FA-490F-985E-2AB39D43C838}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{DF61DF11-34FA-490F-985E-2AB39D43C838}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{DF61DF11-34FA-490F-985E-2AB39D43C838}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{DF61DF11-34FA-490F-985E-2AB39D43C838}.Release|Any CPU.Build.0 = Release|Any CPU
 		{A55AEDED-F358-4E07-90C6-F8865BDEDE61}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{A55AEDED-F358-4E07-90C6-F8865BDEDE61}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A55AEDED-F358-4E07-90C6-F8865BDEDE61}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A55AEDED-F358-4E07-90C6-F8865BDEDE61}.Release|Any CPU.Build.0 = Release|Any CPU
-		{A05F6284-E80E-E49A-5A60-E5A1C6A61C3D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A05F6284-E80E-E49A-5A60-E5A1C6A61C3D}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A05F6284-E80E-E49A-5A60-E5A1C6A61C3D}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A05F6284-E80E-E49A-5A60-E5A1C6A61C3D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9F183BF6-AB13-3A8C-BAAA-0EF61FA23043}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9F183BF6-AB13-3A8C-BAAA-0EF61FA23043}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9F183BF6-AB13-3A8C-BAAA-0EF61FA23043}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9F183BF6-AB13-3A8C-BAAA-0EF61FA23043}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

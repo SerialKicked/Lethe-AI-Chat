@@ -50,6 +50,8 @@ namespace LetheAIChat.src.forms
             ed_editsys_scenario.Text = selected.ScenarioTitle.Replace("\n", "\\n");
             ed_editsys_dialogs.Text = selected.DialogsTitle.Replace("\n", "\\n");
             ed_editsys_prefix.Text = selected.CategorySeparator.Replace("\n", "\\n");
+            ed_corefacts.Text = selected.CoreFactsTitle.Replace("\n", "\\n");
+            edFileName.Text = selected.UniqueName;
         }
 
         private void listPrompt_SelectedIndexChanged(object sender, EventArgs e)
@@ -69,7 +71,8 @@ namespace LetheAIChat.src.forms
                 WorldInfoTitle = ed_editsys_worldinfo.Text.Replace("\\n", "\n"),
                 ScenarioTitle = ed_editsys_scenario.Text.Replace("\\n", "\n"),
                 DialogsTitle = ed_editsys_dialogs.Text.Replace("\\n", "\n"),
-                CategorySeparator = ed_editsys_prefix.Text.Replace("\\n", "\n")
+                CategorySeparator = ed_editsys_prefix.Text.Replace("\\n", "\n"),
+                CoreFactsTitle = ed_corefacts.Text.Replace("\\n", "\n")
             };
         }
 

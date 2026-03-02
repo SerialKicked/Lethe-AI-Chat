@@ -1,14 +1,13 @@
 using LetheAISharp;
 using LetheAISharp.Agent;
+using LetheAISharp.Agent.Actions;
 using LetheAISharp.Files;
 using LetheAISharp.LLM;
 using LetheAISharp.Memory;
-using LetheAISharp.SearchAPI;
-using AngleSharp.Text;
 using Markdig;
+using Microsoft.Extensions.Logging;
 using Microsoft.Web.WebView2.Core;
 using Newtonsoft.Json;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Media;
@@ -16,12 +15,14 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Media.TextFormatting;
 using LetheAIChat.AgentPlugins;
+using LetheAIChat.Controls;
 using LetheAIChat.Files;
 using LetheAIChat.Game;
 using LetheAIChat.Plugins;
+using LetheAIChat.Slash;
 using LetheAIChat.src.forms;
-using LetheAIChat.Web;
 
 namespace LetheAIChat
 {
@@ -37,13 +38,16 @@ namespace LetheAIChat
         private TimeSpan _responselength = default;
         private readonly ActivityTimer _activityTimer = new();
         private int _afkmessagecount = 0;
-        private EditMessageForm? _editMessageForm;
         private readonly Random RNG = new();
-        private RenPyDialogHandler? _renpyDialogHandler;
         private string ed_log = string.Empty;
+        private SingleMessage? _lastUserMessageForGroupLoop;
+        private bool _suppressGroupSwitchEvent = false;
 
-        public static Character? Bot => LLMEngine.Bot as Character;
-        public static Character? User => LLMEngine.User as Character;
+        public RenPyDialogHandler? _renpyDialogHandler;
+        public readonly List<ISlashCommand> slashCommands = [new MainSlashCmds()];
+
+        public static ICharacter? Bot => LLMEngine.Bot as ICharacter;
+        public static ICharacter? User => LLMEngine.User as ICharacter;
 
         /// <summary>
         /// Custom markdown pipeline with extensions
@@ -104,31 +108,52 @@ namespace LetheAIChat
         public MainForm()
         {
             InitializeComponent();
+            this.Shown += async (_, __) =>
+            {
+                await InitializeWebViewAsync();
+                cb_bot_SelectedIndexChanged(cb_bot, new EventArgs());
+                await LoadHistoryToUI();
+            };
 
             ed_input.SpellCheckLanguage = "en-US";
 
-            HelptoolTip.SetToolTip(ck_ragenabled, "Use RAG functionalities to insert summaries of relevant previous sessions based on the user's input." + Environment.NewLine + "Configurable in the Program.Settings tab.");
-            HelptoolTip.SetToolTip(ck_senseoftime, "Insert day and time information to prompt when relevant to give the bot a better understanding of time.");
-            HelptoolTip.SetToolTip(ck_sessionmemory, "Use a set amount of tokens (set in Program.Settings) to insert summaries of previous chat sessions with this bot." + Environment.NewLine + "This drastically increases the bot's long-term memory.");
-            HelptoolTip.SetToolTip(ck_worldinfo, "Use the WorldInfo file(s) associated with this bot. WorldInfo is a list of keyword-triggered textual information that is inserted into the prompt when the conditions are met." + Environment.NewLine + "See the World Info tab for additional information.");
+            HelptoolTip.SetToolTip(mck_ragenabled, "Use RAG functionalities to insert summaries of relevant previous sessions based on the user's input." + Environment.NewLine + "Configurable in the Program.Settings tab.");
+            HelptoolTip.SetToolTip(mck_guidance, "Insert day and time information to prompt when relevant to give the bot a better understanding of time.");
+            HelptoolTip.SetToolTip(mck_sessionmemory, "Use a set amount of tokens (set in Program.Settings) to insert summaries of previous chat sessions with this bot." + Environment.NewLine + "This drastically increases the bot's long-term memory.");
+            HelptoolTip.SetToolTip(mck_worldinfo, "Use the WorldInfo file(s) associated with this bot. WorldInfo is a list of keyword-triggered textual information that is inserted into the prompt when the conditions are met." + Environment.NewLine + "See the World Info tab for additional information.");
+            HelptoolTip.SetToolTip(mck_charsampler, "If checked, and when using a bot persona containing a list of compatible inference Program.Settings, the inference Program.Settings will be picked at random from that list each time the bot write a new message." + Environment.NewLine + Environment.NewLine + "Will lead to a more creative and less repetitive interaction, but also less consistent.");
+            HelptoolTip.SetToolTip(mck_onlinerag, "If checked, the bot may perform a web search (using DuckDuckGo) to improve its responses when asked to.");
 
-            HelptoolTip.SetToolTip(ck_charsampler, "If checked, and when using a bot persona containing a list of compatible inference Program.Settings, the inference Program.Settings will be picked at random from that list each time the bot write a new message." + Environment.NewLine + Environment.NewLine + "Will lead to a more creative and less repetitive interaction, but also less consistent.");
-            HelptoolTip.SetToolTip(ck_onlinerag, "If checked, the bot may perform a web search (using DuckDuckGo) to improve its responses when asked to.");
-
-            // Load our app level agent plugins
+            // Load our agentic actions
+            AgentRuntime.RegisterAction(new SessionMoodCheckAction());
+            AgentRuntime.RegisterAction(new ImageInfoAction());
+            AgentRuntime.RegisterAction(new PersonInfoAction());
+            AgentRuntime.RegisterAction(new FindGroupNextAgent());
+            // Load our agentic plugins
             AgentRuntime.RegisterPlugin("GoalDesignerTask", new GoalDesignerTask());
             AgentRuntime.RegisterPlugin("CustomGoalTask", new CustomGoalTask());
             AgentRuntime.RegisterPlugin("JournalTask", new JournalTask());
-
+            AgentRuntime.RegisterPlugin("SessionGoalTask", new SessionGoalTask());
+            // Manage theme
+            if (Program.Settings.Skin == "Light")
+                ThemeManager.ApplyLight();
+            else
+                ThemeManager.ApplyDark();
+            // Load login form
+            var loginForm = new LoginForm();
+            ThemeManager.ApplyToForm(loginForm);
+            loginForm.ShowDialog(this);
+            if (loginForm.DialogResult != DialogResult.OK)
+            {
+                MessageBox.Show("No connection with backend server. You can use the application, but you cannot chat with the AI.");
+            }
             // Chat related events
             SetupChatMenu();
-            _isinitloading = false;
             _activityTimer.OnTrigger += OnBotInitiateConversation;
-
             // Autodetection of the user's activity (mostly for the background agent functionalities)
             Application.AddMessageFilter(new ActivityMessageFilter());
-
             ed_input.KeyPress += Ed_input_KeyPress!;
+            ThemeManager.ApplyToForm(this);
         }
 
         /// <summary>
@@ -161,26 +186,46 @@ namespace LetheAIChat
             {
                 cb_sysprompt.Items.Add(item.Value.UniqueName);
             }
-            LoadSettings();
 
-            // Show LoginForm
-            var loginForm = new LoginForm();
-            loginForm.ShowDialog(this);
-            if (loginForm.DialogResult != DialogResult.OK)
-            {
-                MessageBox.Show("No connection with backend server. You can use the application, but you cannot chat with the AI.");
-            }
+            _isinitloading = true;
 
-            LLMEngine.Init();
+            // set cb_user to the Program.Settings.UserFile value if it's in the list, otherwise set index to 0.
+            cb_user.SelectedIndex = cb_user.Items.Contains(Program.Settings.UserFile) ? cb_user.Items.IndexOf(Program.Settings.UserFile) : 0;
+            // set cb_infer to the Program.Settings.InferenceFile value if it's in the list, otherwise set index to 0.
+            cb_infer.SelectedIndex = cb_infer.Items.Contains(Program.Settings.SamplerFile) ? cb_infer.Items.IndexOf(Program.Settings.SamplerFile) : 0;
+            // set cb_instruct to the Program.Settings.InstructFile value if it's in the list, otherwise set index to 0.
+            cb_instruct.SelectedIndex = cb_instruct.Items.Contains(Program.Settings.Instruct) ? cb_instruct.Items.IndexOf(Program.Settings.Instruct) : 0;
+            // set cb_sysprompt to the Program.Settings.PromptFile value if it's in the list, otherwise set index to 0.
+            cb_sysprompt.SelectedIndex = cb_sysprompt.Items.Contains(Program.Settings.PromptFile) ? cb_sysprompt.Items.IndexOf(Program.Settings.PromptFile) : 0;
+
+            // set cb_bot to the Program.Settings.BotFile value if it's in the list, otherwise set index to 0.
+            // If the saved bot is password-protected, default to "Assistant" to avoid a zombie state on startup.
+            var savedBotFile = Program.Settings.BotFile;
+            if (cb_bot.Items.Contains(savedBotFile) && DataFiles.Characters.TryGetValue(savedBotFile, out var savedBotChar) && savedBotChar.Protected)
+                savedBotFile = "Assistant";
+            cb_bot.SelectedIndex = cb_bot.Items.Contains(savedBotFile) ? cb_bot.Items.IndexOf(savedBotFile) : 0;
+
+
+            num_maxcontext.Maximum = Program.Settings.MaxTotalTokens;
+            num_maxcontext.Value = Program.Settings.MaxTotalTokens;
+            num_maxresponse.Value = Program.Settings.MaxReplyLength;
+            num_temperature.Value = (decimal)Program.Settings.Temperature;
+            mck_sessionmemory.Checked = LLMEngine.Settings.SessionMemorySystem;
+            mck_ttstoggle.Checked = Program.Settings.UseTTS;
+            mck_disablethink.Checked = Program.Settings.DisableThinking;
+            mck_ragtothink.Checked = Program.Settings.RAGMoveToThinkBlock;
+            mck_agentmode.Checked = LLMEngine.Bot.AgentMode;
+            mckNatMem.Checked = !LLMEngine.Bot.Brain.DisableEurekas;
+            btVectorSearch.Enabled = LLMEngine.Settings.RAGEnabled;
+
+            Program.ApplyContextPluginSettings();
+
             LLMEngine.ContextPlugins = [];
             LLMEngine.ContextPlugins.Add(new LocationPlugin("Locations"));
             LLMEngine.ContextPlugins.Add(new WebSearchPlugin());
-            ck_ragenabled.Checked = LLMEngine.Settings.RAGEnabled;
-            ck_worldinfo.Checked = LLMEngine.Settings.AllowWorldInfo;
-            LLMEngine.OnInferenceStreamed += OnStreamMessageReceived;
-            LLMEngine.OnInferenceEnded += OnStreamInferenceEnded;
-            LLMEngine.OnFullPromptReady += OnFullPromptReady;
-            LLMEngine.OnStatusChanged += OnStatusChanged;
+            mck_ragenabled.Checked = LLMEngine.Settings.RAGEnabled;
+            mck_worldinfo.Checked = LLMEngine.Settings.AllowWorldInfo;
+            SubscribeLLMEvents();
 
             ed_input.EnableImageDragDrop(basestr =>
             {
@@ -194,6 +239,52 @@ namespace LetheAIChat
                 LLMEngine.VLM_AddImage(DragNDropExtension.DroppedFilePath);
                 DisplayImage(basestr);
             }, 1024);
+            _isinitloading = false;
+
+        }
+
+        private void SubscribeLLMEvents()
+        {
+            LLMEngine.OnInferenceStreamed += OnStreamMessageReceived;
+            LLMEngine.OnInferenceEnded += OnStreamInferenceEnded;
+            LLMEngine.OnFullPromptReady += OnFullPromptReady;
+            LLMEngine.OnStatusChanged += OnStatusChanged;
+        }
+
+        private void UnsubscribeLLMEvents()
+        {
+            LLMEngine.OnInferenceStreamed -= OnStreamMessageReceived;
+            LLMEngine.OnInferenceEnded -= OnStreamInferenceEnded;
+            LLMEngine.OnFullPromptReady -= OnFullPromptReady;
+            LLMEngine.OnStatusChanged -= OnStatusChanged;
+        }
+
+        private async void bt_backend_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                using var loginForm = new LoginForm();
+                ThemeManager.ApplyToForm(loginForm);
+                loginForm.ShowDialog(this);
+                if (loginForm.DialogResult == DialogResult.OK)
+                {
+                    UnsubscribeLLMEvents();
+                    SubscribeLLMEvents();
+                    num_maxcontext.Maximum = LLMEngine.MaxContextLength;
+                    num_maxcontext.Value = LLMEngine.MaxContextLength;
+                    this.Text = "w(AI)fu.NET: " + LLMEngine.CurrentModel;
+                    mck_ttstoggle.Enabled = LLMEngine.SupportsTTS;
+                    mck_onlinerag.Enabled = LLMEngine.SupportsWebSearch;
+                    cboxVLM.Enabled = LLMEngine.SupportsVision;
+                    cboxVLM.Expanded = LLMEngine.SupportsVision;
+                    UpdateUIState();
+                    await LoadHistoryToUI();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error switching backend: {ex.Message}", "Backend Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         /// <summary>
@@ -230,11 +321,12 @@ namespace LetheAIChat
                 bt_connect.Enabled = true;
                 bt_send.Enabled = true;
                 bt_send.Text = "Send";
-                bt_send.BackColor = Color.PaleGreen;
+                bt_send.BackColor = Color.DarkSeaGreen;
                 bt_reroll.Enabled = true;
                 bt_newsession.Enabled = true;
                 bt_impersonate.Enabled = true;
                 cb_bot.Enabled = true;
+                cboxGroup.Enabled = true;
                 cb_user.Enabled = true;
                 var (tokens, duration) = LLMEngine.History.GetCurrentChatSessionInfo();
                 statusbar.Items[0].Text = $"Current Session: {duration.TotalDays:F2} days ({tokens} tokens)";
@@ -249,6 +341,7 @@ namespace LetheAIChat
                 bt_reroll.Enabled = false;
                 bt_newsession.Enabled = false;
                 bt_impersonate.Enabled = false;
+                cboxGroup.Enabled = false;
                 cb_bot.Enabled = false;
                 cb_user.Enabled = false;
             }
@@ -262,18 +355,28 @@ namespace LetheAIChat
                 bt_reroll.Enabled = false;
                 bt_newsession.Enabled = false;
                 bt_impersonate.Enabled = false;
+                cboxGroup.Enabled = false;
                 cb_bot.Enabled = true;
                 cb_user.Enabled = true;
             }
             if (Bot?.AllowedSamplers.Count > 0)
             {
-                ck_charsampler.Enabled = true;
+                mck_charsampler.Enabled = true;
             }
             else
             {
-                ck_charsampler.Enabled = false;
-                ck_charsampler.Checked = false;
+                mck_charsampler.Enabled = false;
+                mck_charsampler.Checked = false;
             }
+            mck_sessionmemory.Checked = LLMEngine.Settings.SessionMemorySystem;
+            mck_ttstoggle.Checked = Program.Settings.UseTTS;
+            mck_disablethink.Checked = Program.Settings.DisableThinking;
+            mck_ragtothink.Checked = Program.Settings.RAGMoveToThinkBlock;
+            mck_agentmode.Checked = LLMEngine.Bot.AgentMode;
+            mckNatMem.Checked = !LLMEngine.Bot.Brain.DisableEurekas;
+            btVectorSearch.Enabled = LLMEngine.Settings.RAGEnabled;
+
+            cbGroupSwitch.Enabled = LLMEngine.Status == SystemStatus.Ready;
         }
 
         /// <summary>
@@ -286,8 +389,7 @@ namespace LetheAIChat
             AutoTalkTimer.Stop();
             SaveSettings();
             LLMEngine.Bot.EndChat(backup: true);
-            if (!string.IsNullOrEmpty(LLMEngine.Bot.UniqueName))
-                (LLMEngine.Bot as IFile).SaveToFile("data/chars/" + LLMEngine.Bot.UniqueName + ".json");
+            LLMEngine.Bot.SaveToFile("data/chars/");
         }
 
         /// <summary>
@@ -297,25 +399,56 @@ namespace LetheAIChat
         /// <param name="e"></param>
         private async void cb_bot_SelectedIndexChanged(object sender, EventArgs e)
         {
+            if (_isinitloading || !IsHandleCreated || !web_chat.IsHandleCreated)
+                return;
+
             if (cb_bot.SelectedItem is string key && !string.IsNullOrEmpty(key))
             {
-                LLMEngine.Bot = DataFiles.Characters[key];
-                await LoadHistoryToUI();
-                ck_senseoftime.Checked = LLMEngine.Bot.SenseOfTime;
-                ck_caninitchat.Checked = Bot?.CanInitiateChat ?? false;
-                var searchplug = LLMEngine.ContextPlugins.Find(x => x.PluginID == "WebSearch");
-                if (searchplug != null)
+                var previousBot = LLMEngine.Bot;
+                var previousSelection = LLMEngine.Bot.UniqueName;
+                try
                 {
-                    ck_onlinerag.Checked = searchplug.Enabled;
-                    ck_onlinerag.Enabled = true;
+                    LLMEngine.Bot = DataFiles.Characters[key];
+                    await LoadHistoryToUI();
+                    mck_guidance.Checked = !LLMEngine.Bot.DisableBotGuidance;
+                    mck_caninitchat.Checked = Bot?.CanInitiateChat ?? false;
+                    var searchplug = LLMEngine.ContextPlugins.Find(x => x.PluginID == "WebSearch");
+                    if (searchplug != null)
+                    {
+                        mck_onlinerag.Checked = searchplug.Enabled;
+                        mck_onlinerag.Enabled = true;
+                    }
+                    else
+                    {
+                        mck_onlinerag.Enabled = false;
+                        mck_onlinerag.Checked = false;
+                    }
+                    _activityTimer?.Reset();
+                    UpdateUIState();
+                    if (LLMEngine.Bot is not GroupChar)
+                    {
+                        _isinitloading = true;
+                        cbGroupSwitch.Enabled = false;
+                        lstGroupMembers.Items.Clear();
+                        lstGroupMembers.Enabled = false;
+                        ckGroupToggle.Checked = false;
+                        _isinitloading = false;
+                    }
+                    FillGroupMemberList();
                 }
-                else
+                catch (OperationCanceledException)
                 {
-                    ck_onlinerag.Enabled = false;
-                    ck_onlinerag.Checked = false;
+                    // User cancelled password entry — revert to previous bot
+                    _isinitloading = true;
+                    if (previousSelection != null && cb_bot.Items.Contains(previousSelection))
+                        cb_bot.SelectedItem = previousSelection;
+                    else if (cb_bot.Items.Count > 0)
+                        cb_bot.SelectedIndex = 0;
+                    _isinitloading = false;
+                    if (previousBot != null)
+                        LLMEngine.Bot = previousBot;
+                    MessageBox.Show("Character switch cancelled: password was not provided.", "Access Cancelled", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
-                _activityTimer?.Reset();
-                UpdateUIState();
             }
         }
 
@@ -333,9 +466,11 @@ namespace LetheAIChat
 
         private async void OnStreamMessageReceived(object? sender, string e)
         {
+            if (string.IsNullOrEmpty(e))
+                return;
             if (!_impersonatemode && !string.IsNullOrEmpty(LLMEngine.Instruct.ThinkingStart) && _currentgencalls == 1)
             {
-                var thoughts = ChatRender.GetMessagePrefix(AuthorRole.Assistant) + $"*{LLMEngine.Bot.UniqueName} is thinking...*";
+                var thoughts = ChatRender.GetMessagePrefix(AuthorRole.Assistant) + $"*{LLMEngine.Bot.GetIdentifier()} is thinking...*";
                 await WebEditLastMessage(thoughts);
             }
 
@@ -412,12 +547,9 @@ namespace LetheAIChat
                 var MsgPrefix = ChatRender.GetMessagePrefix(AuthorRole.Assistant);
 
                 var msg = LLMEngine.Bot.History.LogMessage(AuthorRole.Assistant, stringfix, LLMEngine.User, LLMEngine.Bot);
-                Invoke((System.Windows.Forms.MethodInvoker)async delegate
-                {
-                    await Task.Delay(50);
-                    await WebEditLastMessage(MsgPrefix + stringfix, msg.Guid);
-                });
+                await InvokeAsync(async () => { await WebEditLastMessage(MsgPrefix + stringfix, msg.Guid); });
                 PrepareResponse();
+
                 if (_forcereload || Program.Settings.MaxMessagesOnScreen <= LLMEngine.History.CurrentSession.Messages.Count)
                 {
                     Invoke((System.Windows.Forms.MethodInvoker)async delegate
@@ -434,9 +566,14 @@ namespace LetheAIChat
                     await OutputTTS(stringfix);
                 }
             }
-            (LLMEngine.Bot as Character)?.SaveChatHistory();
+            Bot?.SaveChatHistory();
+
+            // GROUP CHAT CHAIN: continue with next queued bot if any
+            if (await AdvanceGroupQueue())
+                return;
         }
 
+        [Obsolete("This method will be removed in future versions and replaced by an action. In the meantime, bot cannot initiate conversations.")]
         private async void OnBotInitiateConversation(object? sender, EventArgs e)
         {
             if (LLMEngine.Status != SystemStatus.Ready || Bot?.CanInitiateChat != true || _afkmessagecount > 2)
@@ -447,19 +584,19 @@ namespace LetheAIChat
             var lastusermessage = LLMEngine.History.CurrentSession.Messages.LastOrDefault(m => m.Role == AuthorRole.User);
             if (lastusermessage == null)
                 return;
-            var message = "The last message from {{user}} was posted " + LetheAISharp.StringExtensions.TimeSpanToHumanString(DateTime.Now - lastusermessage.Date) + " ago. We're {{day}}, the {{date}} at {{time}} now. Would you like to send a message to {{user}} now? Use your best judgement based on the conversation above. In case you don't want to send a message, just respond with No. If you want to send a message, write the message to {{user}} directly while making sure it's contextually relevant. \n\nThis query will repeat every few minutes.";
+            var message = "The last message from {{user}} was posted " + StringExtensions.TimeSpanToHumanString(DateTime.Now - lastusermessage.Date) + " ago. We're {{day}}, the {{date}} at {{time}} now. Would you like to send a message to {{user}} now? Use your best judgement based on the conversation above. In case you don't want to send a message, just respond with No. If you want to send a message, write the message to {{user}} directly while making sure it's contextually relevant. \n\nThis query will repeat every few minutes.";
             if (_afkmessagecount > 1)
                 message += " You've already sent " + _afkmessagecount + " unanswered messages in a row.";
             else if (_afkmessagecount == 1)
                 message += " You've already sent a message.";
             message = LLMEngine.Bot.ReplaceMacros(message);
             statusbar.Items[1].Text = "Analyzing...";
-            var response = await LLMEngine.QuickInferenceForSystemPrompt(message, false);
-            response = response.RemoveThinkingBlocks(LLMEngine.Instruct.ThinkingStart, LLMEngine.Instruct.ThinkingEnd).Trim();
+            var response = "no"; //  await LLMEngine.QuickInferenceForSystemPrompt(message, false);
+            response = response.RemoveThinkingBlocks().Trim();
 
             if (!string.IsNullOrEmpty(response) && !response.StartsWith("no", StringComparison.InvariantCultureIgnoreCase))
             {
-                var msg = new SingleMessage(AuthorRole.Assistant, DateTime.Now, response, LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName);
+                var msg = new SingleMessage(AuthorRole.Assistant, response);
                 Bot.History.LogMessage(msg);
                 _afkmessagecount++;
                 await SendMessageToUI(msg);
@@ -509,7 +646,6 @@ namespace LetheAIChat
 
         private async void Impersonate(object sender, EventArgs e)
         {
-            ForceCloseEditMenu();
             _activityTimer?.Reset();
             if (LLMEngine.Status == SystemStatus.Busy)
                 return;
@@ -521,224 +657,88 @@ namespace LetheAIChat
             await LLMEngine.ImpersonateUser();
         }
 
-        private (SingleMessage? response, bool usercmdonly) ProcessSlashCommands(string input)
-        {
-            if (string.IsNullOrWhiteSpace(input))
-                return (null, false);
-
-            var workstring = input.Trim();
-            // with input a multi-line string, we want to check if any of the lines starts with a command "/" character and if so, remove this particular line from workstring (set it aside for processing)
-            var lines = workstring.Split(["\n"], StringSplitOptions.RemoveEmptyEntries);
-            var commands = new List<string>();
-            foreach (var line in lines)
-            {
-                if (line.StartsWith('/'))
-                {
-                    commands.Add(line);
-                }
-            }
-            var foundacommand = false;
-            StringBuilder sb = new();
-            foreach (var cmd in commands)
-            {
-                var result = Bot!.MyPoints.ProcessCommand(cmd);
-                if (!string.IsNullOrEmpty(result))
-                {
-                    foundacommand = true;
-                    sb.AppendLinuxLine(result);
-                }
-            }
-            if (!foundacommand)
-                return (null, false);
-
-            var response = sb.ToString().CleanupAndTrim();
-
-            // check if the user sent only commands or not
-            var usercmdonly = commands.Count == lines.Length;
-
-            if (!string.IsNullOrEmpty(response))
-            {
-                return (new SingleMessage(AuthorRole.System, DateTime.Now, LLMEngine.Bot.ReplaceMacros(response), LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName), usercmdonly);
-            }
-            return (null, usercmdonly);
-        }
-
         private async void SendMessage(object sender, EventArgs e)
         {
             LLMEngine.Bot.AgentSystem?.NotifyUserActivity();
-            ForceCloseEditMenu();
             _activityTimer?.Reset();
             _afkmessagecount = 0;
             if (LLMEngine.Status == SystemStatus.Busy)
             {
                 LLMEngine.CancelGeneration();
+                if (LLMEngine.Bot is GroupChar mygroup)
+                    mygroup.ClearResponseQueue();
+                UpdateUIState();
                 return;
             }
             _impersonatemode = false;
             _postdate = DateTime.Now;
             statusbar.Items[1].Text = "Analyzing...";
             UseCharacterDefinedSampler();
-            if (!string.IsNullOrEmpty(ed_input.Text))
-            {
-                var msgtxt = ed_input.Text.ToLinuxFormat();
-                msgtxt = LLMEngine.Bot.ReplaceMacros(msgtxt);
-                var msg = new SingleMessage(AuthorRole.User, DateTime.Now, msgtxt, LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName);
 
-                if (ed_input.Text.StartsWith("/sys "))
-                {
-                    msg.Role = AuthorRole.System;
-                    // remove the /sys prefix
-                    msg.Message = msg.Message[5..].Trim();
-                    await SendMessageToUI(msg);
-                    // ready a new message for the bot's response
-                    PrepareResponse();
-                    await SendMessageToUI(
-                        new SingleMessage(AuthorRole.Assistant, DateTime.Now, "*" + LLMEngine.Bot.UniqueName + " is reading your message...*", LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName));
-                    ed_input.Text = string.Empty;
-                    await LLMEngine.SendMessageToBot(msg);
-                }
-                else if (ed_input.Text.StartsWith("/game "))
-                {
-                    // remove the /sys prefix
-                    var msgpath = msg.Message[6..].Trim();
-                    _renpyDialogHandler = new RenPyDialogHandler(msgpath, "Slay The Princess");
-                    var message = new SingleMessage(AuthorRole.System, DateTime.Now, "*Game Loaded: Slay The Princess*", LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName, false);
-                    await SendMessageToUI(message);
-                    LLMEngine.Bot.History.LogMessage(message);
-                    ed_input.Text = string.Empty;
-                }
-                else if (ed_input.Text.StartsWith("/continue") && _renpyDialogHandler != null)
-                {
-                    var gameinfo = _renpyDialogHandler.Continue();
-                    // check if there's something after "/continue" in ed_input.Text and if there is, store in variable
-                    var extra = string.Empty;
-                    if (ed_input.Text.Length > 9)
-                    {
-                        extra = ed_input.Text[10..].Trim();
-                    }
-
-                    msg.Role = AuthorRole.User;
-                    // remove the /sys prefix
-                    if (!string.IsNullOrEmpty(extra))
-                    {
-                        msg.Message = $"**{User?.Name ?? "User"}'s Comment**" + LLMEngine.NewLine + extra + LLMEngine.NewLine + LLMEngine.NewLine + gameinfo.ShowFullScreen();
-                    }
-                    else
-                    {
-                        msg.Message = gameinfo.ShowFullScreen();
-                    }
-                    await SendMessageToUI(msg);
-                    // ready a new message for the bot's response
-                    PrepareResponse();
-                    await SendMessageToUI(
-                        new SingleMessage(AuthorRole.Assistant, DateTime.Now, "*" + LLMEngine.Bot.UniqueName + " is reading your message...*", LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName));
-                    ed_input.Text = string.Empty;
-                    await LLMEngine.SendMessageToBot(msg);
-                }
-                else if (ed_input.Text.StartsWith("/pick ") && _renpyDialogHandler != null)
-                {
-                    var select = msg.Message[6..].Trim();
-                    var id = int.TryParse(select, out var test) ? test : 0;
-                    var gameinfo = _renpyDialogHandler.MakeChoice(id);
-
-                    msg.Role = AuthorRole.System;
-                    // remove the /sys prefix
-                    msg.Message = gameinfo;
-                    await SendMessageToUI(msg);
-                    // ready a new message for the bot's response
-                    PrepareResponse();
-                    await SendMessageToUI(
-                        new SingleMessage(AuthorRole.Assistant, DateTime.Now, "*" + LLMEngine.Bot.UniqueName + " is reading your message...*", LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName));
-                    ed_input.Text = string.Empty;
-                    await LLMEngine.SendMessageToBot(msg);
-                }
-                else if (ed_input.Text.StartsWith("/dialogs") && _renpyDialogHandler != null)
-                {
-                    var gameinfo = _renpyDialogHandler.Continue();
-                    msg.Role = AuthorRole.System;
-                    // remove the /sys prefix
-                    msg.Message = gameinfo.ShowDialogs();
-                    await SendMessageToUI(msg);
-                    // ready a new message for the bot's response
-                    PrepareResponse();
-                    await SendMessageToUI(
-                        new SingleMessage(AuthorRole.Assistant, DateTime.Now, "*" + LLMEngine.Bot.UniqueName + " is reading your message...*", LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName));
-                    ed_input.Text = string.Empty;
-                    await LLMEngine.SendMessageToBot(msg);
-                }
-                else
-                {
-                    var (response, usercmdonly) = ProcessSlashCommands(msgtxt);
-                    if (response != null)
-                    {
-                        if (usercmdonly)
-                        {
-                            LLMEngine.History.LogMessage(response);
-                            await SendMessageToUI(response);
-                            ed_input.Text = string.Empty;
-                            statusbar.Items[1].Text = "Ready!";
-                            return;
-                        }
-                        else
-                        {
-                            LLMEngine.History.LogMessage(msg);
-                            await SendMessageToUI(msg);
-                            await SendMessageToUI(response);
-                            PrepareResponse();
-                            await SendMessageToUI(
-                                new SingleMessage(AuthorRole.Assistant, DateTime.Now, "*" + LLMEngine.Bot.UniqueName + " is reading your message...*", LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName));
-                            ed_input.Text = string.Empty;
-                            await LLMEngine.SendMessageToBot(response);
-                        }
-                    }
-                    else
-                    {
-                        await SendMessageToUI(msg);
-                        // ready a new message for the bot's response
-                        PrepareResponse();
-                        await SendMessageToUI(
-                            new SingleMessage(AuthorRole.Assistant, DateTime.Now, "*" + LLMEngine.Bot.UniqueName + " is reading your message...*", LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName));
-                        ed_input.Text = string.Empty;
-                        await LLMEngine.SendMessageToBot(msg);
-                    }
-                }
-            }
-            else
+            if (string.IsNullOrEmpty(ed_input.Text))
             {
                 // ready a new message for the bot's response
                 PrepareResponse();
-                await SendMessageToUI(
-                    new SingleMessage(AuthorRole.Assistant, DateTime.Now, "*" + LLMEngine.Bot.UniqueName + " is reading your message...*", LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName));
+                await SendMessageToUI(new SingleMessage(AuthorRole.Assistant, "*" + LLMEngine.Bot.GetIdentifier() + " is thinking...*"));
                 ed_input.Text = string.Empty;
                 await LLMEngine.AddBotMessage();
+                return;
             }
+            ;
 
-        }
-
-        private void ForceCloseEditMenu()
-        {
-            if (_editMessageForm != null && !_editMessageForm.IsDisposed)
+            var msgtxt = ed_input.Text.ToLinuxFormat();
+            msgtxt = LLMEngine.Bot.ReplaceMacros(msgtxt);
+            SlashReturn? foundslash = null;
+            foreach (var slash in slashCommands)
             {
-                if (_editMessageForm.InvokeRequired)
+                var res = slash.RunCommand(msgtxt);
+                if (res.Message != null)
                 {
-                    _editMessageForm.Invoke(new Action(() =>
-                    {
-                        _editMessageForm.Close();
-                        _editMessageForm.Dispose();
-                    }));
-                }
-                else
-                {
-                    _editMessageForm.Close();
-                    _editMessageForm.Dispose();
+                    foundslash = res;
+                    break;
                 }
             }
-            _editMessageForm = null;
+            var userMsg = new SingleMessage(AuthorRole.User, msgtxt, DragNDropExtension.DroppedFilePath);
+            if (foundslash is not null && foundslash.ReplaceUser && foundslash.Message is not null)
+            {
+                userMsg = foundslash.Message;
+            }
+            await SendMessageToUI(userMsg);
+            if (foundslash is not null && !foundslash.ReplaceUser && foundslash.Message is not null)
+            {
+                await SendMessageToUI(foundslash.Message);
+                if (foundslash.LogToHistory)
+                    LLMEngine.History.LogMessage(foundslash.Message);
+            }
+
+            // GROUP CHAT START: build queue & prime first responder
+            _lastUserMessageForGroupLoop = userMsg;
+            if (LLMEngine.Bot is GroupChar ggroup && (foundslash is null || !foundslash.NoBotResponse))
+            {
+                await ggroup.BuildResponseQueue(msgtxt);
+                var first = await ggroup.PrimeFirstResponder();
+                if (first != null)
+                {
+                    UpdateGroupSelection(); // keep UI in sync
+                    LLMEngine.InvalidatePromptCache();
+                }
+            }
+            // GROUP CHAT END
+
+            if (foundslash is null || !foundslash.NoBotResponse)
+            {
+                // ready a new message for the bot's response
+                PrepareResponse();
+                await SendMessageToUI(new SingleMessage(AuthorRole.Assistant, "*" + LLMEngine.Bot.GetIdentifier() + " is reading your message...*"));
+                ed_input.Text = string.Empty;
+                await LLMEngine.SendMessageToBot(userMsg);
+            }
         }
 
         private async void RerollMessage(object sender, EventArgs e)
         {
-            ForceCloseEditMenu();
+            if (LLMEngine.Bot is GroupChar g)
+                g.ClearResponseQueue();
             _afkmessagecount = 0;
             if (LLMEngine.Status == SystemStatus.Busy || LLMEngine.History.CurrentSession.Messages.Count == 0 || LLMEngine.History.LastMessage()?.Role != AuthorRole.Assistant)
                 return;
@@ -749,22 +749,24 @@ namespace LetheAIChat
             UseCharacterDefinedSampler();
             await web_chat.CoreWebView2.ExecuteScriptAsync("window.scrollTo(0, document.body.scrollHeight);");
             await WebRemoveLastMessage();
-            await SendMessageToUI(new SingleMessage(AuthorRole.Assistant, DateTime.Now, "*" + LLMEngine.Bot.UniqueName + " is reading your message...*", LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName));
+            await SendMessageToUI(new SingleMessage(AuthorRole.Assistant, "*" + LLMEngine.Bot.GetIdentifier() + " is reading your message...*"));
             PrepareResponse();
             await web_chat.CoreWebView2.ExecuteScriptAsync("window.scrollTo(0, document.body.scrollHeight);");
             await LLMEngine.RerollLastMessage();
         }
 
-        private async void Connect(object sender, EventArgs e)
+        private async void bt_connectClick(object sender, EventArgs e)
         {
             await LLMEngine.Connect();
             num_maxcontext.Maximum = LLMEngine.MaxContextLength;
             num_maxcontext.Value = LLMEngine.MaxContextLength;
-            grp_model.Text = LLMEngine.CurrentModel;
-            ck_ttstoggle.Enabled = LLMEngine.SupportsTTS;
-            ck_onlinerag.Enabled = LLMEngine.SupportsWebSearch;
-            boxVLM.Enabled = LLMEngine.SupportsVision;
+            this.Text = "w(AI)fu.NET: " + LLMEngine.CurrentModel;
+            mck_ttstoggle.Enabled = LLMEngine.SupportsTTS;
+            mck_onlinerag.Enabled = LLMEngine.SupportsWebSearch;
+            cboxVLM.Enabled = LLMEngine.SupportsVision;
+            cboxVLM.Expanded = LLMEngine.SupportsVision;
             LLMEngine.Bot.AgentSystem?.NotifyUserActivity();
+            UpdateUIState();
         }
 
         private async void StartNewSession(object sender, EventArgs e)
@@ -795,9 +797,10 @@ namespace LetheAIChat
 
                 LLMEngine.OnQuickInferenceEnded += (s, e) =>
                 {
-                    loadingForm.AddProgress(50);
+                    loadingForm.AddProgress(25);
                 };
                 await LLMEngine.History.StartNewChatSession(true, false);
+                //await LLMEngine.Bot.Brain.ProcessPreviousSession();
                 if (LLMEngine.Bot.SelfEditTokens > 0)
                 {
                     loadingForm.SetMessage("Updating dynamic character (this might take a few minutes).");
@@ -807,10 +810,9 @@ namespace LetheAIChat
                     loadingForm.SetMessage("Saving history.");
                     loadingForm.SetProgress(95);
                 }
-                (LLMEngine.Bot as Character)?.SaveChatHistory();
-                await LLMEngine.Bot.UpdateSelfEditSection();
-                if (!string.IsNullOrEmpty(LLMEngine.Bot.UniqueName))
-                    (LLMEngine.Bot as IFile).SaveToFile("data/chars/" + LLMEngine.Bot.UniqueName + ".json");
+                Bot.SaveChatHistory();
+                await Bot.UpdateSelfEditSection();
+                Bot.SaveToFile("data/chars");
                 loadingForm.SetMessage("Loading new session.");
                 loadingForm.SetProgress(100);
                 LLMEngine.RemoveQuickInferenceEventHandler();
@@ -873,6 +875,8 @@ namespace LetheAIChat
             _impersonatemode = false;
             if (LLMEngine.Status == SystemStatus.Busy || LLMEngine.History.CurrentSession.Messages.Count == 0)
                 return;
+            if (LLMEngine.Bot is GroupChar g)
+                g.ClearResponseQueue();
 
             var msgs = LLMEngine.History.CurrentSession.Messages;
 
@@ -902,7 +906,15 @@ namespace LetheAIChat
 
         private async Task LoadHistoryToUI()
         {
-            await WebChatLoad();
+            if (InvokeRequired)
+            {
+                await InvokeAsync(WebChatLoad);
+            }
+            else
+            {
+                await WebChatLoad();
+            }
+
         }
 
         private async Task SendMessageToUI(SingleMessage singleMessage)
@@ -956,7 +968,7 @@ namespace LetheAIChat
 
         private void UseCharacterDefinedSampler()
         {
-            if (!ck_charsampler.Checked || !ck_charsampler.Enabled || Bot == null)
+            if (!mck_charsampler.Checked || !mck_charsampler.Enabled || Bot == null)
                 return;
             // make a list of samplers, looking at DataFiles.Inference and what samplers are allowed in the Character's Program.Settings
             var samplers = new List<string>();
@@ -978,43 +990,6 @@ namespace LetheAIChat
 
         #region *** Settings Tab Functions ***
 
-        private void LoadSettings()
-        {
-            if (!File.Exists("settings.json"))
-            {
-                Program.Settings = new LetheChatSettings();
-                File.WriteAllText("settings.json", JsonConvert.SerializeObject(Program.Settings, Formatting.Indented));
-            }
-
-            var str = File.ReadAllText("settings.json");
-            Program.Settings = JsonConvert.DeserializeObject<LetheChatSettings>(str)!;
-            LLMEngine.Settings = Program.Settings;
-            var saveinit = _isinitloading;
-            _isinitloading = true;
-            LLMEngine.MaxContextLength = Program.Settings.MaxTotalTokens;
-
-            // set cb_user to the Program.Settings.UserFile value if it's in the list, otherwise set index to 0.
-            cb_user.SelectedIndex = cb_user.Items.Contains(Program.Settings.UserFile) ? cb_user.Items.IndexOf(Program.Settings.UserFile) : 0;
-            // set cb_infer to the Program.Settings.InferenceFile value if it's in the list, otherwise set index to 0.
-            cb_infer.SelectedIndex = cb_infer.Items.Contains(Program.Settings.SamplerFile) ? cb_infer.Items.IndexOf(Program.Settings.SamplerFile) : 0;
-            // set cb_instruct to the Program.Settings.InstructFile value if it's in the list, otherwise set index to 0.
-            cb_instruct.SelectedIndex = cb_instruct.Items.Contains(Program.Settings.Instruct) ? cb_instruct.Items.IndexOf(Program.Settings.Instruct) : 0;
-            // set cb_bot to the Program.Settings.BotFile value if it's in the list, otherwise set index to 0.
-            cb_bot.SelectedIndex = cb_bot.Items.Contains(Program.Settings.BotFile) ? cb_bot.Items.IndexOf(Program.Settings.BotFile) : 0;
-            // set cb_sysprompt to the Program.Settings.PromptFile value if it's in the list, otherwise set index to 0.
-            cb_sysprompt.SelectedIndex = cb_sysprompt.Items.Contains(Program.Settings.PromptFile) ? cb_sysprompt.Items.IndexOf(Program.Settings.PromptFile) : 0;
-            num_maxcontext.Maximum = Program.Settings.MaxTotalTokens;
-            num_maxcontext.Value = Program.Settings.MaxTotalTokens;
-            num_maxresponse.Value = Program.Settings.MaxReplyLength;
-            num_temperature.Value = (decimal)Program.Settings.Temperature;
-            ck_sessionmemory.Checked = LLMEngine.Settings.SessionMemorySystem;
-            ck_ttstoggle.Checked = Program.Settings.UseTTS;
-            ck_disablethink.Checked = Program.Settings.DisableThinking;
-            ck_ragtothink.Checked = Program.Settings.RAGMoveToThinkBlock;
-            ck_agentmode.Checked = LLMEngine.Bot.AgentMode;
-            _isinitloading = saveinit;
-        }
-
         private void SaveSettings()
         {
             try
@@ -1025,13 +1000,13 @@ namespace LetheAIChat
                 Program.Settings.Instruct = cb_instruct.SelectedItem?.ToString() ?? string.Empty;
                 Program.Settings.PromptFile = cb_sysprompt.SelectedItem?.ToString() ?? string.Empty;
                 Program.Settings.Temperature = (double)num_temperature.Value;
-                Program.Settings.UseTTS = ck_ttstoggle.Checked;
-                LLMEngine.Bot.AgentMode = ck_agentmode.Checked;
-                Program.Settings.SessionMemorySystem = ck_sessionmemory.Checked;
-
+                Program.Settings.UseTTS = mck_ttstoggle.Checked;
+                LLMEngine.Bot.AgentMode = mck_agentmode.Checked;
+                LLMEngine.Bot.Brain.DisableEurekas = !mckNatMem.Checked;
+                Program.Settings.SessionMemorySystem = mck_sessionmemory.Checked;
+                Program.ApplyContextPluginSettings();
                 var str = JsonConvert.SerializeObject(Program.Settings, Formatting.Indented);
                 File.WriteAllText("settings.json", str);
-
             }
             catch (Exception ex)
             {
@@ -1041,7 +1016,8 @@ namespace LetheAIChat
 
         private void ck_ragenabled_CheckedChanged(object sender, EventArgs e)
         {
-            LLMEngine.Settings.RAGEnabled = ck_ragenabled.Checked;
+            LLMEngine.Settings.RAGEnabled = mck_ragenabled.Checked;
+            btVectorSearch.Enabled = LLMEngine.Settings.RAGEnabled;
         }
 
         #endregion
@@ -1049,7 +1025,7 @@ namespace LetheAIChat
 
         #region *** WebView2 Handling ***
 
-        private string InjectDialogCSS(string htmlContent)
+        private static string InjectDialogCSS(string htmlContent)
         {
             string css = $@"
     <style>
@@ -1178,19 +1154,20 @@ namespace LetheAIChat
 
         private static string InjectDialogHtml(string imgPath, string dialog, Guid messageGuid)
         {
-            // Replace thinking tags with collapsible div structure, using the instruction format's tags
-            var processedDialog = dialog;
+            // dialog should already be sanitized for HTML; the pipeline calling this produces the HTML
+            // Ensure both .thinking-content and .message-raw exist so JS paths always have a target.
             return $@"
-                <div class='chat-message' data-message-guid='{messageGuid}'>
-                    <div class='portrait'>
-                        <img src='https://appassets.test/img/{imgPath}' alt='Portrait' width='60'>
-                    </div>
-                    <div class='message-content'>
-                        <div class='message-raw'>
-                            {processedDialog}
-                        </div>
-                    </div>
-                </div>";
+        <div class='chat-message' data-message-guid='{messageGuid}'>
+            <div class='portrait'>
+                <img src='https://appassets.test/img/{imgPath}' alt='Portrait' width='60'>
+            </div>
+            <div class='message-content'>
+                <div class='thinking-content'></div>
+                <div class='message-raw'>
+                    {dialog}
+                </div>
+            </div>
+        </div>";
         }
 
         private static string AddHtmlMessage(SingleMessage singleMessage)
@@ -1199,10 +1176,10 @@ namespace LetheAIChat
             switch (singleMessage.Role)
             {
                 case AuthorRole.User:
-                    img = (singleMessage.User as Character)!.Icon;
+                    img = (singleMessage.User as ICharacter)!.Icon;
                     break;
                 case AuthorRole.Assistant:
-                    img = (singleMessage.Bot as Character)!.Icon;
+                    img = (singleMessage.Bot as ICharacter)!.Icon;
                     break;
             }
             var html = Markdown.ToHtml(ChatRender.GetMessagePrefix(singleMessage) + singleMessage.Message, CustomMarkDownPipeline);
@@ -1232,58 +1209,74 @@ namespace LetheAIChat
                 return;
             }
 
+            // Builds one atomic JS block that updates content AND sets GUID on the same wrapper
+            string BuildAtomicUpdateScript(string html, bool isThinking, Guid? guid)
+            {
+                var guidLiteral = guid.HasValue ? guid.Value.ToString() : string.Empty;
+
+                return $@"
+(function() {{
+  try {{
+    const contents = document.getElementsByClassName('message-content');
+    if (!contents || contents.length === 0) {{
+      console.error('WebEditLastMessage: no .message-content elements found');
+      return;
+    }}
+    const idx = contents.length - 1;
+
+    if (typeof updateMessageAtIndex === 'function') {{
+      updateMessageAtIndex(""{html}"", idx, {(isThinking ? "true" : "false")});
+    }} else {{
+      const messageContent = contents[idx];
+      const target = {(isThinking ? "messageContent.querySelector('.thinking-content')" : "messageContent.querySelector('.message-raw')")};
+      if (target) {{
+        target.innerHTML = ""{html}"";
+      }} else {{
+        console.error('WebEditLastMessage: target element not found for isThinking=' + {(isThinking ? "true" : "false").ToString().ToLowerInvariant()});
+      }}
+    }}
+
+    const wrapper = contents[idx].closest('.chat-message');
+    {(messageGuid.HasValue ? $"if (wrapper) wrapper.setAttribute('data-message-guid', '{guidLiteral}');" : "")}
+  }} catch (e) {{
+    console.error('WebEditLastMessage: exception', e);
+  }}
+}})();";
+            }
+
             if (!string.IsNullOrEmpty(LLMEngine.Instruct.ThinkingStart) &&
                 newMessage.StartsWith(ChatRender.GetMessagePrefix(AuthorRole.Assistant)) &&
                 newMessage.Contains(LLMEngine.Instruct.ThinkingStart))
             {
-                // remove prefix from message
+                // Strip assistant prefix
                 var worktext = newMessage[ChatRender.GetMessagePrefix(AuthorRole.Assistant).Length..];
+
                 if (!worktext.Contains(LLMEngine.Instruct.ThinkingEnd))
                 {
+                    // Thinking-only update
                     worktext = worktext.Replace(LLMEngine.Instruct.ThinkingStart, string.Empty);
-                    var text = Markdown.ToHtml(worktext, CustomMarkDownPipeline);
-                    text = text.SanitizeForJS();
-                    var script = $"updateMessageAtIndex(\"{text}\", document.getElementsByClassName('message-content').length - 1, true);";
-                    await web_chat.CoreWebView2.ExecuteScriptAsync(script);
+                    var text = Markdown.ToHtml(worktext, CustomMarkDownPipeline).SanitizeForJS();
+                    await web_chat.CoreWebView2.ExecuteScriptAsync(BuildAtomicUpdateScript(text, isThinking: true, messageGuid));
                 }
                 else
                 {
-                    // both tokens are found, so we want two strings now: the first one is the thinking part, the second one is the message part
+                    // Thinking + final
                     var parts = worktext.Split([LLMEngine.Instruct.ThinkingEnd], 2, StringSplitOptions.None);
+
                     var thinkingText = parts[0].Replace(LLMEngine.Instruct.ThinkingStart, string.Empty);
-                    thinkingText = Markdown.ToHtml(thinkingText, CustomMarkDownPipeline).SanitizeForJS();
-                    var script = $"updateMessageAtIndex(\"{thinkingText}\", document.getElementsByClassName('message-content').length - 1, true);";
-                    await web_chat.CoreWebView2.ExecuteScriptAsync(script);
+                    var thinkingHtml = Markdown.ToHtml(thinkingText, CustomMarkDownPipeline).SanitizeForJS();
+                    await web_chat.CoreWebView2.ExecuteScriptAsync(BuildAtomicUpdateScript(thinkingHtml, isThinking: true, messageGuid));
 
                     var msgoutput = ChatRender.GetMessagePrefix(AuthorRole.Assistant) + parts[1].TrimStart().TrimStart('\n').TrimStart();
-                    var messageText = Markdown.ToHtml(msgoutput, CustomMarkDownPipeline).SanitizeForJS();
-                    script = $"updateMessageAtIndex(\"{messageText}\", document.getElementsByClassName('message-content').length - 1, false);";
-                    await web_chat.CoreWebView2.ExecuteScriptAsync(script);
+                    var messageHtml = Markdown.ToHtml(msgoutput, CustomMarkDownPipeline).SanitizeForJS();
+                    await web_chat.CoreWebView2.ExecuteScriptAsync(BuildAtomicUpdateScript(messageHtml, isThinking: false, messageGuid));
                 }
             }
             else
             {
-                var text = Markdown.ToHtml(newMessage, CustomMarkDownPipeline);
-                text = text.SanitizeForJS();
-                var script = $"updateMessageAtIndex(\"{text}\", document.getElementsByClassName('message-content').length - 1, false);";
-                await web_chat.CoreWebView2.ExecuteScriptAsync(script);
+                var text = Markdown.ToHtml(newMessage, CustomMarkDownPipeline).SanitizeForJS();
+                await web_chat.CoreWebView2.ExecuteScriptAsync(BuildAtomicUpdateScript(text, isThinking: false, messageGuid));
             }
-
-            // Update the data-message-guid attribute if a GUID is provided
-            if (messageGuid.HasValue)
-            {
-                var updateGuidScript = $@"
-                    const chatMessages = document.querySelectorAll('.chat-message');
-                    if (chatMessages.length > 0) {{
-                        const lastMessage = chatMessages[chatMessages.length - 1];
-                        lastMessage.setAttribute('data-message-guid', '{messageGuid.Value}');
-                        console.log('Updated GUID for last message to: {messageGuid.Value}');
-                    }} else {{
-                        console.error('No chat messages found to update GUID');
-                    }}";
-                await web_chat.CoreWebView2.ExecuteScriptAsync(updateGuidScript);
-            }
-
 
             await web_chat.CoreWebView2.ExecuteScriptAsync("window.scrollTo(0, document.body.scrollHeight);");
         }
@@ -1296,16 +1289,8 @@ namespace LetheAIChat
         private async Task WebChatLoad()
         {
             if (web_chat.CoreWebView2 == null)
-            {
-                await web_chat.EnsureCoreWebView2Async();
-                web_chat.CoreWebView2!.Settings.AreDevToolsEnabled = false;
-                web_chat.CoreWebView2!.Settings.AreDefaultContextMenusEnabled = false;
-                web_chat.CoreWebView2.SetVirtualHostNameToFolderMapping("appassets.test", AppContext.BaseDirectory + "data\\", CoreWebView2HostResourceAccessKind.Allow);
-                web_chat.CoreWebView2.DOMContentLoaded += OnWebChatContentLoaded!; // Add event handler
-                web_chat.CoreWebView2.WebMessageReceived += OnWebChatWebMessageReceived!;
-                web_chat.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
-                web_chat.CoreWebView2.NavigationStarting += OnNavigationStarting;
-            }
+                await InitializeWebViewAsync();
+
             var html = string.Empty;
             _forcereload = false;
             var start = LLMEngine.History.CurrentSession.Messages.Count - Program.Settings.MaxMessagesOnScreen;
@@ -1420,6 +1405,24 @@ namespace LetheAIChat
             }
         }
 
+        private async Task InitializeWebViewAsync()
+        {
+            if (web_chat.CoreWebView2 != null) return;
+            await web_chat.EnsureCoreWebView2Async();
+            web_chat.CoreWebView2!.Settings.AreDevToolsEnabled = false;
+            web_chat.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            web_chat.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                "appassets.test",
+                Path.Combine(AppContext.BaseDirectory, "data"),
+                CoreWebView2HostResourceAccessKind.Allow);
+
+            web_chat.CoreWebView2.DOMContentLoaded += OnWebChatContentLoaded!;
+            web_chat.CoreWebView2.WebMessageReceived += OnWebChatWebMessageReceived!;
+            web_chat.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
+            web_chat.CoreWebView2.NavigationStarting += OnNavigationStarting;
+            web_chat.ZoomFactor = 1D;
+        }
+
         #endregion
 
 
@@ -1427,7 +1430,10 @@ namespace LetheAIChat
 
         private async Task OutputTTS(string text)
         {
-            var paragraphs = text.Split(["\n\n"], StringSplitOptions.RemoveEmptyEntries);
+            // remove all text between asterisks, including the asterisks, as those are for markdown formatting and would mess with TTS
+            var cleanText = System.Text.RegularExpressions.Regex.Replace(text, @"\*.*?\*", "\n");
+
+            var paragraphs = cleanText.Split(["\n\n"], StringSplitOptions.RemoveEmptyEntries);
 
             if (paragraphs.Length == 0)
                 return;
@@ -1481,7 +1487,7 @@ namespace LetheAIChat
 
         private void ck_ttstoggle_CheckedChanged(object sender, EventArgs e)
         {
-            Program.Settings.UseTTS = ck_ttstoggle.Checked;
+            Program.Settings.UseTTS = mck_ttstoggle.Checked;
         }
 
         #endregion
@@ -1510,7 +1516,7 @@ namespace LetheAIChat
             if (cb_instruct.SelectedItem is string key && !string.IsNullOrEmpty(key))
             {
                 LLMEngine.Instruct = DataFiles.Instruct[key];
-                ck_forceNames.Checked = LLMEngine.Instruct.AddNamesToPrompt;
+                mck_forceNames.Checked = LLMEngine.Instruct.AddNamesToPrompt;
             }
         }
 
@@ -1526,14 +1532,14 @@ namespace LetheAIChat
             LLMEngine.ForceTemperature = ((double)num_temperature.Value);
         }
 
-        private void ck_senseoftime_CheckedChanged(object sender, EventArgs e)
+        private void mck_guidance_CheckedChanged(object sender, EventArgs e)
         {
-            LLMEngine.Bot.SenseOfTime = ck_senseoftime.Checked;
+            LLMEngine.Bot.DisableBotGuidance = !mck_guidance.Checked;
         }
 
         private void ck_sessionmemory_CheckedChanged(object sender, EventArgs e)
         {
-            LLMEngine.Settings.SessionMemorySystem = ck_sessionmemory.Checked;
+            LLMEngine.Settings.SessionMemorySystem = mck_sessionmemory.Checked;
         }
 
         private void bt_scenario_Click(object sender, EventArgs e)
@@ -1546,13 +1552,13 @@ namespace LetheAIChat
 
         private void ck_forceNames_CheckedChanged(object sender, EventArgs e)
         {
-            LLMEngine.Instruct.AddNamesToPrompt = ck_forceNames.Checked;
+            LLMEngine.Instruct.AddNamesToPrompt = mck_forceNames.Checked;
             LLMEngine.InvalidatePromptCache();
         }
 
         private void ck_worldinfo_CheckedChanged(object sender, EventArgs e)
         {
-            LLMEngine.Settings.AllowWorldInfo = ck_worldinfo.Checked;
+            LLMEngine.Settings.AllowWorldInfo = mck_worldinfo.Checked;
         }
 
         private void cb_sysprompt_SelectionIndexChanged(object sender, EventArgs e)
@@ -1563,8 +1569,7 @@ namespace LetheAIChat
 
         private void ck_caninit_CheckedChanged(object sender, EventArgs e)
         {
-            if (Bot != null)
-                Bot.CanInitiateChat = ck_caninitchat.Checked;
+            Bot?.CanInitiateChat = mck_caninitchat.Checked;
         }
 
         private void AutoTalkTimer_Tick(object sender, EventArgs e)
@@ -1581,24 +1586,25 @@ namespace LetheAIChat
             var searchplug = LLMEngine.ContextPlugins.Find(x => x.PluginID == "WebSearch");
             if (searchplug != null)
             {
-                searchplug.Enabled = ck_onlinerag.Checked;
-                ck_onlinerag.Enabled = true;
+                searchplug.Enabled = mck_onlinerag.Checked;
+                mck_onlinerag.Enabled = true;
             }
             else
             {
-                ck_onlinerag.Enabled = false;
-                ck_onlinerag.Checked = false;
+                mck_onlinerag.Enabled = false;
+                mck_onlinerag.Checked = false;
             }
         }
 
         private void bt_editchar_Click(object sender, EventArgs e)
         {
             using var editForm = new CharEditForm();
-            editForm.SetupCharacterEditor(Bot?.UniqueName ?? string.Empty);
+            ThemeManager.ApplyToForm(editForm);
+            editForm.SetupCharacterEditor(Bot?.GetIdentifier() ?? string.Empty);
             editForm.ShowDialog();
             LLMEngine.InvalidatePromptCache();
-            var currbselection = cb_bot.Text;
-            var curruselection = cb_user.Text;
+            var currbselection = cb_bot.SelectedText;
+            var curruselection = cb_user.SelectedText;
             cb_bot.Items.Clear();
             cb_user.Items.Clear();
             foreach (var item in DataFiles.Characters)
@@ -1617,27 +1623,29 @@ namespace LetheAIChat
         private void bt_clearimg_Click(object sender, EventArgs e)
         {
             LLMEngine.VLM_ClearImages();
+            DragNDropExtension.DroppedFilePath = string.Empty;
             pictEmbed.Image = null;
         }
 
         private void ck_disablethink_CheckedChanged(object sender, EventArgs e)
         {
-            LLMEngine.Settings.DisableThinking = ck_disablethink.Checked;
+            LLMEngine.Settings.DisableThinking = mck_disablethink.Checked;
         }
 
         private void ck_ragtothink_CheckedChanged(object sender, EventArgs e)
         {
-            LLMEngine.Settings.RAGMoveToThinkBlock = ck_ragtothink.Checked;
+            LLMEngine.Settings.RAGMoveToThinkBlock = mck_ragtothink.Checked;
         }
 
         private void ck_agentmode_CheckedChanged(object sender, EventArgs e)
         {
-            LLMEngine.Bot.AgentMode = ck_agentmode.Checked;
+            LLMEngine.Bot.AgentMode = mck_agentmode.Checked;
         }
 
         private void btInstructEdit_Click(object sender, EventArgs e)
         {
             using var editForm = new InstructForm();
+            ThemeManager.ApplyToForm(editForm);
             editForm.SetupInstructEditor(LLMEngine.Instruct.UniqueName ?? string.Empty);
             editForm.ShowDialog();
             LLMEngine.InvalidatePromptCache();
@@ -1655,6 +1663,7 @@ namespace LetheAIChat
         private void btSysPrompt_Click(object sender, EventArgs e)
         {
             using var editForm = new SysPromptForm();
+            ThemeManager.ApplyToForm(editForm);
             editForm.SetupPromptEditor(LLMEngine.SystemPrompt.UniqueName ?? string.Empty);
             editForm.ShowDialog();
             LLMEngine.InvalidatePromptCache();
@@ -1671,6 +1680,7 @@ namespace LetheAIChat
         private void btSampleEditor_Click(object sender, EventArgs e)
         {
             using var editForm = new SamplerForm();
+            ThemeManager.ApplyToForm(editForm);
             editForm.SetupSamplerEditor(LLMEngine.Sampler.UniqueName ?? string.Empty);
             editForm.ShowDialog();
             LLMEngine.InvalidatePromptCache();
@@ -1689,15 +1699,18 @@ namespace LetheAIChat
         {
             // Open settings form as modal dialog
             using var settingsForm = new SettingsForm();
+            ThemeManager.ApplyToForm(settingsForm);
             settingsForm.StartPosition = FormStartPosition.CenterParent;
             settingsForm.ShowDialog();
             LLMEngine.InvalidatePromptCache();
-            await WebChatLoad();
+            if (LLMEngine.Status == SystemStatus.Ready)
+                await WebChatLoad();
         }
 
         private void btWorldEditor_Click(object sender, EventArgs e)
         {
             using var worldForm = new WorldEditForm();
+            ThemeManager.ApplyToForm(worldForm);
             worldForm.StartPosition = FormStartPosition.CenterParent;
             worldForm.ShowDialog();
             LLMEngine.InvalidatePromptCache();
@@ -1706,6 +1719,7 @@ namespace LetheAIChat
         private async void btChatHistory_Click(object sender, EventArgs e)
         {
             using var worldForm = new ChatHistoryForm();
+            ThemeManager.ApplyToForm(worldForm);
             worldForm.StartPosition = FormStartPosition.CenterParent;
             worldForm.ShowDialog();
             LLMEngine.InvalidatePromptCache();
@@ -1715,6 +1729,7 @@ namespace LetheAIChat
         private void btVectorSearch_Click(object sender, EventArgs e)
         {
             using var ragForm = new RAGSearchForm();
+            ThemeManager.ApplyToForm(ragForm);
             ragForm.StartPosition = FormStartPosition.CenterParent;
             ragForm.ShowDialog();
         }
@@ -1723,9 +1738,233 @@ namespace LetheAIChat
         {
             // Show a basic window with the ed_log content in a textbox and a close button
             using var logForm = new RawLogForm();
+            ThemeManager.ApplyToForm(logForm);
             logForm.SetText(ed_log);
             logForm.StartPosition = FormStartPosition.CenterParent;
             logForm.ShowDialog();
+        }
+
+        private void dbgMood_Click(object sender, EventArgs e)
+        {
+            var mood = LLMEngine.Bot.Brain.Mood.Describe();
+            // show a simple message box
+            MessageBox.Show(this, $"{LLMEngine.Bot.ReplaceMacros(mood)}", "Mood State", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+            MemoryBrowserForm.ShowForActiveBot(this);
+        }
+
+        private void ckNatMem_CheckedChanged(object sender, EventArgs e)
+        {
+            LLMEngine.Bot.Brain.DisableEurekas = !mckNatMem.Checked;
+        }
+
+        private void dbgRunAgent_Click(object sender, EventArgs e)
+        {
+            LLMEngine.Bot.AgentSystem?.ForceRunLoop();
+        }
+
+        private void dbgPromptInsert_Click(object sender, EventArgs e)
+        {
+            var build = new StringBuilder();
+            foreach (var item in LLMEngine.dataInserts)
+            {
+                build.AppendLine(item.Memory.Name + " [ " + item.Duration + " ]");
+            }
+            MessageBox.Show(build.ToString(), "Current Prompt Inserts", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+
+        private void cbGroupSwitch_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_suppressGroupSwitchEvent || LLMEngine.Status == SystemStatus.Busy)
+                return;
+            if (Bot is GroupChar group)
+            {
+                var selectedName = cbGroupSwitch.SelectedItem as string;
+                var selectedChar = group.AllPersonas.Find(p => p.UniqueName == selectedName);
+                if (selectedChar != null)
+                {
+                    group.SetCurrentBot(selectedName!);
+                    LLMEngine.InvalidatePromptCache();
+                }
+            }
+        }
+
+        private void FillGroupMemberList()
+        {
+            lstGroupMembers.Items.Clear();
+            if (Bot is GroupChar group)
+            {
+                var lst = DataFiles.Characters.Values.Where(c => !c.IsUser).OrderBy(c => c.Name).ToList();
+                if (group.PrimaryBot is not null)
+                    lst.Remove(group.PrimaryBot);
+                foreach (var persona in lst)
+                {
+                    lstGroupMembers.Items.Add(persona.UniqueName, group.SecondaryPersonaNames.Contains(persona.UniqueName));
+                }
+            }
+        }
+
+        private async void ckGroupToggle_CheckedChanged(object sender, EventArgs e)
+        {
+            if (_isinitloading || Bot is null)
+                return;
+            cbGroupSwitch.Enabled = ckGroupToggle.Checked;
+            lstGroupMembers.Enabled = ckGroupToggle.Checked;
+            if (ckGroupToggle.Checked)
+            {
+                if (Bot is GroupChar)
+                    return; // Already in group mode
+                var group = new GroupChar();
+                group.SetPrimaryPersona((Character)Bot!);
+                LLMEngine.Bot = group;
+                cbGroupSwitch.Items.Clear();
+                foreach (var name in group.AllPersonas)
+                {
+                    cbGroupSwitch.Items.Add(name.UniqueName);
+                }
+                await LoadHistoryToUI();
+                mck_guidance.Checked = !LLMEngine.Bot.DisableBotGuidance;
+                mck_caninitchat.Checked = Bot?.CanInitiateChat ?? false;
+                var searchplug = LLMEngine.ContextPlugins.Find(x => x.PluginID == "WebSearch");
+                if (searchplug != null)
+                {
+                    mck_onlinerag.Checked = searchplug.Enabled;
+                    mck_onlinerag.Enabled = true;
+                }
+                else
+                {
+                    mck_onlinerag.Enabled = false;
+                    mck_onlinerag.Checked = false;
+                }
+                _activityTimer?.Reset();
+                UpdateUIState();
+            }
+            else
+            {
+                if (Bot is not GroupChar curGroup)
+                    return; // Already in single mode
+                curGroup.ClearResponseQueue();
+                var gobackbot = curGroup.PrimaryBot;
+                // set the cb_bot checkbox to the primary bot
+                if (gobackbot is not null)
+                {
+                    cb_bot.SelectedItem = gobackbot?.UniqueName;
+                    cb_bot_SelectedIndexChanged(cb_bot, new EventArgs());
+                }
+                lstGroupMembers.Items.Clear();
+            }
+            FillGroupMemberList();
+            UpdateGroupSelection();
+        }
+
+        private void lstGroupMembers_ItemCheck(object sender, ItemCheckEventArgs e)
+        {
+            if (Bot is not GroupChar group)
+                return;
+            var personaID = lstGroupMembers.Items[e.Index].ToString() ?? string.Empty;
+            if (e.NewValue == CheckState.Checked)
+            {
+                var persona = DataFiles.Characters[personaID];
+                group.AddSecondaryPersona(persona);
+            }
+            else
+            {
+                group.RemoveSecondaryPersona(personaID);
+            }
+            UpdateGroupSelection();
+            LLMEngine.InvalidatePromptCache();
+        }
+
+        private void UpdateGroupSelection()
+        {
+            if (Bot is not GroupChar group) return;
+            _suppressGroupSwitchEvent = true;
+            try
+            {
+                cbGroupSwitch.Items.Clear();
+                foreach (var name in group.AllPersonas)
+                    cbGroupSwitch.Items.Add(name.UniqueName);
+
+                cbGroupSwitch.SelectedItem = group.CurrentBotId;
+            }
+            finally
+            {
+                _suppressGroupSwitchEvent = false;
+            }
+        }
+
+        // Add this helper inside MainForm (class scope)
+        private async Task<bool> AdvanceGroupQueue()
+        {
+            if (LLMEngine.Bot is not GroupChar ggroup)
+                return false;
+
+            var lastUser = _lastUserMessageForGroupLoop;
+            if (lastUser is null)
+                return false;
+
+            var next = await ggroup.GetNextFromQueue();
+            if (next is null)
+                return false;
+
+            ggroup.SetCurrentBot(next.UniqueName);
+
+            // UI work must happen on the UI thread.
+            BeginInvoke(new Action(async () =>
+            {
+                try
+                {
+                    DragNDropExtension.DroppedFilePath = string.Empty;
+                    LLMEngine.VLM_ClearImages();
+                    UpdateGroupSelection();
+                    LLMEngine.InvalidatePromptCache();
+                    PrepareResponse();
+                    await SendMessageToUI(new SingleMessage(
+                        AuthorRole.Assistant,
+                        "*" + LLMEngine.Bot.GetIdentifier() + " is reading your message...*"));
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("AdvanceGroupQueue UI block error: " + ex);
+                }
+            }));
+
+            // Fire-and-forget the actual generation. We do NOT await here, so the next
+            // OnStreamInferenceEnded after this bot finishes will run with no guard blockage.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await LLMEngine.AddBotMessage().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("AdvanceGroupQueue generation error: " + ex);
+                }
+            });
+
+            return true;
+        }
+
+        private async void button4_Click(object sender, EventArgs e)
+        {
+            var msg = Bot.Brain.BuildAwayMessage(true);
+            if (msg is null)
+                return;
+            LLMEngine.History.LogMessage(msg);
+            await LoadHistoryToUI();
+
+
+        }
+
+
+        private void button6_Click(object sender, EventArgs e)
+        {
+            FactBrowserForm.ShowForActiveBot(this);
         }
     }
 }

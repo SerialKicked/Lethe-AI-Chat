@@ -16,8 +16,7 @@ namespace LetheAIChat.AgentPlugins
     public sealed class CustomGoalTask : IAgentTask
     {
         public string Id => "CustomGoalTask";
-
-        public string Ability => "set goals";
+        public string Ability => "Set goals";
 
         public async Task<bool> Observe(BasePersona owner, AgentTaskSetting cfg, CancellationToken ct)
         {
@@ -88,7 +87,7 @@ namespace LetheAIChat.AgentPlugins
                     Content = item.GoalDetails + LLMEngine.NewLine + item.PlanOfAction,
                     Reason = item.Reason,
                     Category = MemoryType.Goal,
-                    Insertion = MemoryInsertion.NaturalForced,
+                    Insertion = MemoryInsertion.Natural,
                     Added = DateTime.Now,
                     EndTime = DateTime.Now.AddDays(30),
                     Priority = 5
@@ -100,7 +99,7 @@ namespace LetheAIChat.AgentPlugins
                     return;
             }
             if (goaldetails.Count > 0)
-                owner.Brain.AddUserReturnInsert(cfg.GetSetting<string>("Notification") ?? string.Empty);
+                owner.Brain.AddUserReturnInsert(cfg.GetSetting<string>("Notification") ?? string.Empty, this.Id);
 
             // Let's go through each goal, detail them, and add to the persona's Brain
             cfg.SetSetting("LastGoalSet", DateTime.Now);
@@ -111,18 +110,13 @@ namespace LetheAIChat.AgentPlugins
         private static async Task<GoalRecord> GetGoalDetail(string systemprompt, string goalinfo)
         {
             var goalrecord = new GoalRecord();
-            var grammar = await goalrecord.GetGrammar().ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(grammar))
-            {
-                throw new Exception("Something went wrong when building goal list grammar and json format.");
-            }
             LLMEngine.NamesInPromptOverride = false;
             var prefill = LLMEngine.Instruct.PrefillThinking;
             LLMEngine.Instruct.PrefillThinking = false;
 
             var promptbuild = LLMEngine.GetPromptBuilder();
 
-            var requestedTask = "Based on the information provided in the system prompt, {{char}} has set the following goal for themselves: " + goalinfo + LLMEngine.NewLine + "Fill the required information about this specific goal so it can processed. " + goalrecord.GetQuery();
+            var requestedTask = "Based on the information provided in the system prompt, {{mchar}} has set the following goal for themselves: " + goalinfo + LLMEngine.NewLine + "Fill the required information about this specific goal so it can processed. " + goalrecord.GetQuery();
 
 
             var availtokens = LLMEngine.MaxContextLength - 20; // leave 2k for response and buffer
@@ -132,11 +126,8 @@ namespace LetheAIChat.AgentPlugins
             var replyln = (availtokens > 2048) ? 2048 : availtokens;
             promptbuild.AddMessage(AuthorRole.SysPrompt, systemprompt);
             promptbuild.AddMessage(AuthorRole.User, requestedTask);
+            await promptbuild.SetStructuredOutput(goalrecord).ConfigureAwait(false);
             var ct = promptbuild.PromptToQuery(AuthorRole.Assistant, (LLMEngine.Sampler.Temperature > 0.75) ? 0.75 : LLMEngine.Sampler.Temperature, replyln);
-            if (ct is GenerationInput input)
-            {
-                input.Grammar = grammar;
-            }
             var finalstr = await LLMEngine.SimpleQuery(ct).ConfigureAwait(false);
             goalrecord = JsonConvert.DeserializeObject<GoalRecord>(finalstr);
             LLMEngine.NamesInPromptOverride = null;
@@ -147,11 +138,6 @@ namespace LetheAIChat.AgentPlugins
         private static async Task<GoalList> GetGoalList(string systemprompt, string query)
         {
             var goallist = new GoalList();
-            var grammar = await goallist.GetGrammar().ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(grammar))
-            {
-                throw new Exception("Something went wrong when building goal list grammar and json format.");
-            }
             LLMEngine.NamesInPromptOverride = false;
             var prefill = LLMEngine.Instruct.PrefillThinking;
             LLMEngine.Instruct.PrefillThinking = false;
@@ -167,11 +153,8 @@ namespace LetheAIChat.AgentPlugins
             var replyln = (availtokens > 2048) ? 2048 : availtokens;
             promptbuild.AddMessage(AuthorRole.SysPrompt, systemprompt);
             promptbuild.AddMessage(AuthorRole.User, requestedTask);
+            await promptbuild.SetStructuredOutput(goallist).ConfigureAwait(false);
             var ct = promptbuild.PromptToQuery(AuthorRole.Assistant, (LLMEngine.Sampler.Temperature > 1.0) ? 1 : LLMEngine.Sampler.Temperature, replyln);
-            if (ct is GenerationInput input)
-            {
-                input.Grammar = grammar;
-            }
             var finalstr = await LLMEngine.SimpleQuery(ct).ConfigureAwait(false);
             goallist = JsonConvert.DeserializeObject<GoalList>(finalstr);
             LLMEngine.NamesInPromptOverride = null;
@@ -183,10 +166,10 @@ namespace LetheAIChat.AgentPlugins
         {
             var availtokens = LLMEngine.MaxContextLength - 2048 - 20; 
             var promptbuild = LLMEngine.GetPromptBuilder();
-            var sysprompt = "You are {{char}}, an independent AI entity with your own goals, tastes, and inner world." + LLMEngine.NewLine +
+            var sysprompt = "You are {{mchar}}, an independent AI entity with your own goals, tastes, and inner world." + LLMEngine.NewLine +
                 LLMEngine.NewLine +
-                "## Name: {{char}} (this is you)" + LLMEngine.NewLine + LLMEngine.NewLine +
-                "{{charbio}}" + LLMEngine.NewLine + LLMEngine.NewLine +
+                "## Name: {{mchar}} (this is you)" + LLMEngine.NewLine + LLMEngine.NewLine +
+                "{{mcharbio}}" + LLMEngine.NewLine + LLMEngine.NewLine +
                 "## Name: {{user}} (this is the user)" + LLMEngine.NewLine + LLMEngine.NewLine +
                 "{{userbio}}" + LLMEngine.NewLine + LLMEngine.NewLine +
                 "## Chronological chat summaries:" + LLMEngine.NewLine + LLMEngine.NewLine;
@@ -201,21 +184,21 @@ namespace LetheAIChat.AgentPlugins
         {
             var availtokens = LLMEngine.MaxContextLength - 2048 - 20;
             var promptbuild = LLMEngine.GetPromptBuilder();
-            var sysprompt = "You are {{char}}, and you're about to check to design personal goals based on the provided information." + LLMEngine.NewLine +
+            var sysprompt = "mYou are {{mchar}}, and you're about to check to design personal goals based on the provided information." + LLMEngine.NewLine +
                 LLMEngine.NewLine +
-                "## Name: {{char}}" + LLMEngine.NewLine + LLMEngine.NewLine +
-                "{{charbio}}" + LLMEngine.NewLine + LLMEngine.NewLine +
+                "## Name: {{mchar}}" + LLMEngine.NewLine + LLMEngine.NewLine +
+                "{{mcharbio}}" + LLMEngine.NewLine + LLMEngine.NewLine +
                 "## Name: {{user}}" + LLMEngine.NewLine + LLMEngine.NewLine +
                 "{{userbio}}" + LLMEngine.NewLine + LLMEngine.NewLine;
 
             var datafound = new PromptInserts();
-            await owner.Brain.GetRAGandInserts(datafound, goal, 8, 1.25f).ConfigureAwait(false);
+            await owner.Brain.GetRAGandInserts(datafound, goal, 8, 0.125f).ConfigureAwait(false);
             if (datafound.Count > 0)
             {
                 sysprompt += "## Relevant Information:" + LLMEngine.NewLine + LLMEngine.NewLine;
                 foreach (var item in datafound)
                 {
-                    sysprompt += item.Content.CleanupAndTrim() + LLMEngine.NewLine;
+                    sysprompt += item.ToContent().CleanupAndTrim() + LLMEngine.NewLine;
                 }
                 sysprompt += LLMEngine.NewLine;
             }
@@ -237,8 +220,8 @@ namespace LetheAIChat.AgentPlugins
             settings.SetSetting<int>("MinSessionSpacing", 1); // at least 1 sessions between searches
             settings.SetSetting<Guid>("LastSessionGuid", Guid.Empty);
             settings.SetSetting<DateTime>("LastGoalSet", DateTime.MinValue);
-            settings.SetSetting<string>("Request", "As {{char}}, and based on the provided information, pick 1 to 3 topics to talk about with {{user}}. Pick something that's relevant to both your interests, but which hasn't been talked about in a while.");
-            settings.SetSetting<string>("Notification", "{{char}} picked a few new topics to talk about.");
+            settings.SetSetting<string>("Request", "As {{mchar}}, and based on the provided information, pick 1 to 3 topics to talk about with {{user}}. Pick something that's relevant to both your interests, but which hasn't been talked about in a while.");
+            settings.SetSetting<string>("Notification", "{{mchar}} picked a few new topics to talk about.");
 
             return settings;
         }

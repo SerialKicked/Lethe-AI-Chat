@@ -1,12 +1,20 @@
-﻿using LetheAIChat;
-using LetheAISharp;
+﻿using LetheAISharp;
 using LetheAISharp.Agent.Actions;
+using LetheAISharp.API;
 using LetheAISharp.Files;
 using LetheAISharp.LLM;
+using AngleSharp.Dom;
 using Microsoft.Extensions.Logging;
 using System;
+using System.CodeDom.Compiler;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
+using System.Windows;
+using LetheAIChat.Files;
 using static LetheAISharp.SearchAPI.WebSearchAPI;
+using LetheAISharp.Memory;
 
 namespace LetheAIChat.Plugins
 
@@ -16,7 +24,7 @@ namespace LetheAIChat.Plugins
         public string PluginID { get; } = "WebSearch";
         public bool Enabled { get; set; } = false;
 
-        private readonly string[] kwEnter = ["search ", "look for ", "what is ", "where is ", "who is ", "who are ", " the web", "internet", "web search", "do you know", "where are ", "when is "];
+        private readonly string[] kwEnter = [ "search ", "look for ", "what is ", "where is ", "who is ", "who are ", " the web", "internet", "web search", "do you know", "where are ", "when is " ];
 
         public bool KeywordDetection { get; set; } = false;
 
@@ -88,7 +96,7 @@ namespace LetheAIChat.Plugins
             var topicsearch = new FindSingleTopicSearchAction();
             var topics = await topicsearch.Execute(new FindResearchTopicsParams
             {
-                Messages = [new SingleMessage(AuthorRole.User, DateTime.Now, userinput, LLMEngine.Bot.UniqueName, LLMEngine.User.UniqueName)],
+                Messages = [ new SingleMessage(AuthorRole.User, userinput) ],
                 IncludeBios = false,
                 CustomRequest = "Review the message in the prompt above and identify the topic for which a web search would be beneficial.",
             }, CancellationToken.None);
@@ -109,8 +117,16 @@ namespace LetheAIChat.Plugins
                 return new PluginResponse { IsHandled = false, Response = null };
 
             var formatedresponsed = new StringBuilder();
-            formatedresponsed.AppendLinuxLine("You looked up the information on the web and found the following information that you can use to improve your response:").AppendLine();
-            formatedresponsed.AppendLinuxLine(merged.CleanupAndTrim());
+            if (LLMEngine.Settings.AntiHallucinationMemoryFormat)
+            {
+                formatedresponsed.AppendLinuxLine($"<SystemEvent>[{MemoryType.WebSearch.ToString().ToUpperInvariant()}] - Topic: {topics.Topic}.");
+                formatedresponsed.Append($"{merged.CleanupAndTrim()}");
+            }
+            else
+            {
+                formatedresponsed.AppendLinuxLine("You looked up the information on the web and found the following information that you can use to improve your response:").AppendLinuxLine();
+                formatedresponsed.Append(merged.CleanupAndTrim());
+            }
             responseAppendNeeded = true;
             var output = new PluginResponse
             {
@@ -168,10 +184,7 @@ namespace LetheAIChat.Plugins
             LLMEngine.NamesInPromptOverride = false;
             var fullprompt = BuildCheckPrompt(inputText);
             var response = await LLMEngine.SimpleQuery(fullprompt);
-            if (!string.IsNullOrWhiteSpace(LLMEngine.Instruct.ThinkingStart))
-            {
-                response = response.RemoveThinkingBlocks(LLMEngine.Instruct.ThinkingStart, LLMEngine.Instruct.ThinkingEnd);
-            }
+            response = response.RemoveThinkingBlocks();
             LLMEngine.Logger?.LogInformation("WebSearch Plugin Result: {output}", response);
             LLMEngine.NamesInPromptOverride = null;
             if (LLMEngine.Client!.SupportsStateSave && savedKV)
