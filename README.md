@@ -50,4 +50,4 @@ This application is designed for local deployment. The backend must be running o
 
 ## License
 
-Lethe AI Chat is under [CC BY-NC-SA 4.0](https://github.com/SerialKicked/ChatAI/tree/master?tab=License-1-ov-file#readme). You may not use this code for commercial purposes.
+Lethe AI Chat is under [CC BY-NC-SA 4.0](https://github.com/SerialKicked/Lethe-AI-Chat/tree/master?tab=License-1-ov-file). You may not use this code for commercial purposes.
